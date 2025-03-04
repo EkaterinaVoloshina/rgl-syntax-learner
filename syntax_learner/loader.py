@@ -1,13 +1,17 @@
 import pandas as pd
 import numpy as np
+import pickle
 
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from sklearn.model_selection import train_test_split
 
 
 class DataLoader:
-    def __init__(self, paths, encoding="one-hot"):
+    def __init__(self, paths,
+                 feature,
+                 encoding="one-hot"):
         self.encoding = encoding
+        self.feature = feature
 
         if len(paths) == 3:
             self.X_train, self.y_test = self.transform(self.read_data(paths[0]))
@@ -24,13 +28,16 @@ class DataLoader:
             #self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(X, y)
 
     def read_data(self, path):
-        df = pd.read_csv(path)
+        with open(path, 'rb') as f:
+            data = pickle.load(f)
+        df = pd.DataFrame(data[self.feature])
         return df
 
     def transform(self, df):
         X = []
-        y = LabelEncoder().fit_transform(df["target"].array)
-        df = df.drop("Unnamed: 0", axis=1)
+        encoder = LabelEncoder()
+        y = encoder.fit_transform(df["target"].array)
+        self.labels = encoder.classes_
         df = df.drop("target", axis=1)
         if self.encoding == "one-hot":
             encoder = OneHotEncoder()
