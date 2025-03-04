@@ -115,8 +115,8 @@ def parse(treebank):
     treebank_path = glob.glob(f"{treebank}/*.conllu")[0]
     rules, datasets = extract(treebank_path, lang)
 
-    with open(f"{treebank}_rules.json", "w") as f:
+    with open(f"data/{treebank}_rules.json", "w") as f:
         f.write(json.dumps(rules))
 
-    with open(f"{treebank}_datasets.pkl", "wb") as f:
+    with open(f"data/{treebank}_datasets.pkl", "wb") as f:
         pickle.dump(datasets, f)

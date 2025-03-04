@@ -30,6 +30,7 @@ class DataLoader:
     def read_data(self, path):
         with open(path, 'rb') as f:
             data = pickle.load(f)
+        #print(data.keys())
         df = pd.DataFrame(data[self.feature])
         return df
 

@@ -94,10 +94,11 @@ def train_sparse_logreg(dl,
         )
         model.fit(dl.X_train, dl.y_train)
     return []
+
 def compute(treebank, feat, model):
     lang = treebank.split("_")[1]
     feature = f"{lang}_{feat}"
-    paths = glob.glob(f"{treebank}.pkl")
+    paths = glob.glob(f"data/{treebank}_datasets.pkl")[0]
     loader = DataLoader([paths], feature) # TODO: fix more files
     if model == "tree": # based on AutoLEX paper
         rules = format_rules(train_tree(loader), loader)
@@ -106,5 +107,5 @@ def compute(treebank, feat, model):
     else:
         raise AttributeError(f"Model {model} not implemented yet")
 
-    with open(f"{feature}.json", "w") as outfile:
+    with open(f"data/{feature}.json", "w") as outfile:
         json.dump(rules, outfile)

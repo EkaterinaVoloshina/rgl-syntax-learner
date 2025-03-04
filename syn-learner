@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
 import syntax_learner.compute
-import syntax_learner.pattern_matching
+
 import sys
 
 if len(sys.argv) == 3 and sys.argv[1] == "parse":
+    # to avoid initializing a local server
+    import syntax_learner.pattern_matching
     syntax_learner.pattern_matching.parse(sys.argv[2])
 elif len(sys.argv) == 5 and sys.argv[1] == "compute":
     syntax_learner.compute.compute(sys.argv[2], sys.argv[3], sys.argv[4])
