@@ -97,8 +97,8 @@ def train_sparse_logreg(dl,
 def compute(treebank, feat, model):
     lang = treebank.split("_")[1]
     feature = f"{lang}_{feat}"
-    paths = glob.glob(f"{treebank}/*.conllu")
-    loader = DataLoader(paths, feature)
+    paths = glob.glob(f"{treebank}.pkl")
+    loader = DataLoader([paths], feature) # TODO: fix more files
     if model == "tree": # based on AutoLEX paper
         rules = format_rules(train_tree(loader), loader)
     elif model == "logreg": # based on GREX paper
