@@ -1,16 +1,13 @@
-import glob
-
-import grewpy
-from grewpy import Corpus, Request
-import pandas as pd
+from collections import defaultdict
 from typing import Dict, List
 from tqdm.auto import tqdm
 import json
 import pickle
 import glob
+import conllu as cn
+from syntax_learner.utils import getParams
 
-grewpy.set_config("sud")
-exclude = ["textform", "wordform", "form", "SpaceAfter", "Translit", "LTranslit"]
+exclude_feat = ["Gloss", "Translit", "LTranslit"]
 
 def toJSON(pattern: str,
            deprel: str,
@@ -19,7 +16,7 @@ def toJSON(pattern: str,
     rule = {
         "pattern": pattern,
         "rule": rule,
-        "deprel": deprel,
+        "deprel": None,
         "head": {
             "pos": None,
             "feats": None,
@@ -36,87 +33,85 @@ def toJSON(pattern: str,
     return rule
 
 
-def form_data(corpus: Corpus,
-              ids: dict,
-              exclude : list =["textform", "wordform", "form", "SpaceAfter"]) -> List[dict]:
-    if exclude is None:
-        exclude = exclude
-    data = []
-    for val, idx in ids.items():
-        for i in idx:
-            sent_data = {}
-            sentence = corpus.get(i["sent_id"])
-            match = i["matching"]["nodes"]
-            for node, position in match.items():
-                feats = {f"{k}_{node}": v for k, v in sentence[position].items()
-                         if k not in exclude}
-                sent_data.update(feats)
-                sent_data["target"] = val
-                sent_data["idx"] = i["sent_id"]
-                if "position" not in exclude: # to relative order
-                    sent_data[f"position_{node}"] = position
-            data.append(sent_data)
-    return data
+def process(deprel, dep, head, headId, depId, deep=False):
+    sentData = {}
 
-def extract(treebank_path: str, lang: str):
-    corpus = Corpus(treebank_path)
-    req = Request().pattern("e: head->dep")
-    all_dels = corpus.count(req, clustering_parameter=["e.label"])
-    all_feats = corpus.count_feature_values(exclude=["xpos","lemma","form","wordform",
-                                                     "textform","SpaceAfter", "Gloss"])
-    pos = all_feats.pop("upos")
-    feats = all_feats
-    rules = []
-    # TODO: check linear order
-    datasets = {}
+    sentData["position"] = headId < depId
+    depFeats = {f"{k}_dep": v for k, v in dep["feats"].items()} if dep["feats"] else {}
+    headFeats = {f"{k}_dep": v for k, v in head["feats"].items()} if head["feats"] else {}
+    sentData.update(depFeats)
+    sentData.update(headFeats)
+    if deep:
+        sentData["deprel"] = deprel.split("@")[0]
+    else:
+        sentData["deprel"] = deprel
+    return sentData
 
-    for deprel in tqdm(all_dels):
-        pattern = Request().pattern(f"head-[{deprel}]->dep")
-        param = "{ head << dep}"
-        wordOrderData = corpus.search(pattern, clustering_parameter=[param,])
-        if len(wordOrderData) == 1:
-            rules.append(toJSON(param,
-                                deprel,
-                                next(iter(wordOrderData))))
-        else:
-            datasets[f"{lang}_{deprel}_wordOrder"] = form_data(corpus, wordOrderData,
-                                                               exclude=exclude + ["position"])
 
-        # dependent marking
-        for feat in feats:
-            excludeList = exclude + [feat]
-            depParam = f"dep.{feat}"
-            headParam = f"head.{feat}"
-            featDepData = corpus.search(pattern, clustering_parameter=[depParam,])
-            featHeadData = corpus.search(pattern, clustering_parameter=[headParam,])
-
-            if len(featHeadData) > 1:
-                datasets[f"{lang}_{deprel}_head_{feat}"] = form_data(corpus, featHeadData,
-                               exclude=excludeList)
-            elif next(iter(featHeadData)) != "__undefined__":
-                rules.append(toJSON(headParam, deprel, next(iter(featHeadData))))
-
-            if len(featDepData) > 1:
-                datasets[f"{lang}_{deprel}_dep_{feat}"] = form_data(corpus, featDepData,
-                               exclude=excludeList)
-            elif next(iter(featDepData)) != "__undefined__":
-                rules.append(toJSON(depParam, deprel, next(iter(featDepData))))
-        # agreement
-            if "__" not in feat: # these mark head marking or something similar
-                featData = corpus.search(pattern, clustering_parameter=[f"{{ head.{feat} <> dep.{feat} }}"])
-                if not featData:
-                    print(f"No agreement for {deprel} and {feat}")
+def extract(treebank_path: str, lang: str, deep: bool = False):
+    params = getParams(lang.split("-")[0])
+    with open(treebank_path, "r") as f:
+        data = f.read()
+    sentences = cn.parse(data)
+    dataDict = defaultdict(list)
+    for sentence in tqdm(sentences):
+        groups = defaultdict(list)
+        for token in sentence:
+            deprel = token["deprel"]
+            head = token["head"]
+            # WORD ORDER
+            if isinstance(token["id"], int) and deprel != "root" and deprel != "punct":
+                headData = sentence.filter(id=head)[0]
+                output = process(deprel, token, headData, head, token["id"])
+                groups[head].append((output, token["id"]))
+                if head < token["id"]:
+                    output["target"] = "Yes"
+                    dataDict["wordOrder"].append(output)
                 else:
-                    datasets[f"{lang}_{deprel}_agr_{feat}"] = form_data(corpus, featData, excludeList)
-    return rules, datasets
+                    output["target"] = "No"
+                    dataDict["wordOrder"].append(output)
+                    # MATCHING
 
-def parse(treebank):
+                if token["feats"]:
+                    for feat, val in token["feats"].items():
+                        if not params or feat in params:
+                            if headData["feats"] and feat in headData["feats"]:
+                                if val == headData["feats"][feat]:
+                                    output["target"] = "Yes"
+                                    dataDict[f"agr_{feat}"].append(output)
+                                else:
+                                    output["target"] = "No"
+                                    dataDict[f"agr_{feat}"].append(output)
+                        # FEATURE MARKING
+                            output["target"] = val
+                            dataDict[f"dep_{feat}"].append(output)
+                if headData["feats"]:
+                    for feat, val in headData["feats"].items():
+                        if not params or feat in params:
+                            output["target"] = val
+                            dataDict[f"dep_{feat}"].append(output)
+
+        # LINEAR RULES
+
+        for head, group in groups.items():
+            position = 0
+            for num, (token, idx) in enumerate(group):
+                if num == position and head > idx:
+                    position += 1
+                token["target"] = position
+                dataDict["linearOrder"].append(token)
+                position += 1
+
+    return dataDict
+
+def parse(treebank, deep=False):
     lang = treebank.split("_")[1]
-    treebank_path = glob.glob(f"{treebank}/*.conllu")[0]
-    rules, datasets = extract(treebank_path, lang)
+    treebanks = glob.glob(f"{treebank}/*.conllu")
+    for treebank_path in treebanks:
+        subset = treebank_path.rsplit("-")[-1].replace(".conllu", "")
+        datasets = extract(treebank_path, lang, deep)
+        #with open(f"data/{treebank}_{subset}_rules.json", "w") as f:
+        #    f.write(json.dumps(rules))
 
-    with open(f"data/{treebank}_rules.json", "w") as f:
-        f.write(json.dumps(rules))
-
-    with open(f"data/{treebank}_datasets.pkl", "wb") as f:
-        pickle.dump(datasets, f)
+        with open(f"data/{treebank}_{subset}_datasets.pkl", "wb") as f:
+            pickle.dump(datasets, f)
