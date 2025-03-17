@@ -38,7 +38,7 @@ def process(deprel, dep, head, headId, depId, deep=False):
 
     sentData["position"] = headId < depId
     depFeats = {f"{k}_dep": v for k, v in dep["feats"].items()} if dep["feats"] else {}
-    headFeats = {f"{k}_dep": v for k, v in head["feats"].items()} if head["feats"] else {}
+    headFeats = {f"{k}_head": v for k, v in head["feats"].items()} if head["feats"] else {}
     sentData.update(depFeats)
     sentData.update(headFeats)
     if deep:
@@ -92,7 +92,6 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
                             dataDict[f"dep_{feat}"].append(output)
 
         # LINEAR RULES
-
         for head, group in groups.items():
             position = 0
             for num, (token, idx) in enumerate(group):
