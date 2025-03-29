@@ -56,42 +56,59 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
     dataDict = defaultdict(list)
     for sentence in tqdm(sentences):
         groups = defaultdict(list)
+        subj = False
+        root = None
         for token in sentence:
             deprel = token["deprel"]
             head = token["head"]
             # WORD ORDER
+            if deprel == "root":
+                root = {f"{k}_dep": v for k, v in token["feats"].items()} if token["feats"] else {}
             if isinstance(token["id"], int) and deprel != "root" and deprel != "punct":
                 headData = sentence.filter(id=head)[0]
                 output = process(deprel, token, headData, head, token["id"])
                 groups[head].append((output, token["id"]))
+                if deprel == "subj":  # omitting subject: possible ??
+                    subj = True
                 if head < token["id"]:
-                    output["target"] = "Yes"
-                    dataDict["wordOrder"].append(output)
+                    data = output.copy()
+                    data["target"] = "Yes"
+                    dataDict["wordOrder"].append(data)
                 else:
-                    output["target"] = "No"
-                    dataDict["wordOrder"].append(output)
+                    data = output.copy()
+                    data["target"] = "No"
+                    dataDict["wordOrder"].append(data)
                     # MATCHING
 
                 if token["feats"]:
                     for feat, val in token["feats"].items():
                         if not params or feat in params:
-                            if headData["feats"] and feat in headData["feats"]:
-                                if val == headData["feats"][feat]:
-                                    output["target"] = "Yes"
-                                    dataDict[f"agr_{feat}"].append(output)
-                                else:
-                                    output["target"] = "No"
-                                    dataDict[f"agr_{feat}"].append(output)
+                            if headData["feats"] and feat in headData["feats"] and val == headData["feats"][feat]:
+                                data = output.copy()
+                                data["target"] = "Yes"
+                                dataDict[f"agr_{feat}"].append(data)
+                            else:
+                                data = output.copy()
+                                data["target"] = "No"
+                                dataDict[f"agr_{feat}"].append(data)
                         # FEATURE MARKING
-                            output["target"] = val
-                            dataDict[f"dep_{feat}"].append(output)
+                            data = output.copy()
+                            data["target"] = val
+                            dataDict[f"dep_{feat}"].append(data)
                 if headData["feats"]:
                     for feat, val in headData["feats"].items():
                         if not params or feat in params:
-                            output["target"] = val
-                            dataDict[f"dep_{feat}"].append(output)
+                            data = output.copy()
+                            data["target"] = val
+                            dataDict[f"dep_{feat}"].append(data)
+        if subj:
+            root["target"] = "Yes"
+            dataDict["subj_exists"].append(root)
+        else:
+            root["target"] = "No"
+            dataDict["subj_exists"].append(root)
 
-        # LINEAR RULES
+            # LINEAR RULES
         for head, group in groups.items():
             position = 0
             for num, (token, idx) in enumerate(group):
@@ -100,12 +117,12 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
                 token["target"] = position
                 dataDict["linearOrder"].append(token)
                 position += 1
-
     return dataDict
 
 def parse(treebank, deep=False):
     lang = treebank.split("_")[1]
     treebanks = glob.glob(f"{treebank}/*.conllu")
+    print(treebanks)
     for treebank_path in treebanks:
         subset = treebank_path.rsplit("-")[-1].replace(".conllu", "")
         datasets = extract(treebank_path, lang, deep)
