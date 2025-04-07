@@ -33,7 +33,7 @@ def toJSON(pattern: str,
     return rule
 
 
-def process(deprel, dep, head, headId, depId, deep=False):
+def process(deprel, dep, head, headId, depId, idx, deep=False):
     sentData = {}
 
     sentData["position"] = headId < depId
@@ -41,10 +41,13 @@ def process(deprel, dep, head, headId, depId, deep=False):
     headFeats = {f"{k}_head": v for k, v in head["feats"].items()} if head["feats"] else {}
     sentData.update(depFeats)
     sentData.update(headFeats)
+    sentData["pos_dep"] = dep["upos"]
+    sentData["pos_head"] = head["upos"]
     if deep:
         sentData["deprel"] = deprel.split("@")[0]
     else:
         sentData["deprel"] = deprel
+    sentData["sent_id"] = idx
     return sentData
 
 
@@ -55,6 +58,7 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
     sentences = cn.parse(data)
     dataDict = defaultdict(list)
     for sentence in tqdm(sentences):
+        idx = sentence.metadata["sent_id"]
         groups = defaultdict(list)
         subj = False
         root = None
@@ -66,7 +70,7 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
                 root = {f"{k}_dep": v for k, v in token["feats"].items()} if token["feats"] else {}
             if isinstance(token["id"], int) and deprel != "root" and deprel != "punct":
                 headData = sentence.filter(id=head)[0]
-                output = process(deprel, token, headData, head, token["id"])
+                output = process(deprel, token, headData, head, token["id"], idx)
                 groups[head].append((output, token["id"]))
                 if deprel == "subj":  # omitting subject: possible ??
                     subj = True
@@ -108,7 +112,7 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
             root["target"] = "No"
             dataDict["subj_exists"].append(root)
 
-            # LINEAR RULES
+        # LINEAR RULES
         for head, group in groups.items():
             position = 0
             for num, (token, idx) in enumerate(group):

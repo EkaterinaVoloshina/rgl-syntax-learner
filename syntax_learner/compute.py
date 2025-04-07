@@ -10,6 +10,39 @@ import json
 from collections import defaultdict
 import bambi as bmb
 import arviz as az
+from scipy.stats import chisquare
+
+# code based on LASE-Agreement paper
+def isAgreement(feature_distribution, agree, disagree, threshold):
+    leaftotal = agree + disagree
+    if agree < disagree:
+        return False
+
+    chance_agreement = 0.0
+    total = 0.0
+    for type,val in feature_distribution.items():
+        total += val
+    for type, val in feature_distribution.items():
+        p = val * 1.0 / total
+        chance_agreement += (p * p)
+    empirical_distr = [1 - chance_agreement, chance_agreement]
+
+
+    expected_agree = empirical_distr[1] * leaftotal
+    expected_disagree = empirical_distr[0] * leaftotal
+    t = agree * 1.0 / leaftotal
+
+    if min(expected_disagree, expected_agree) < 5: #cannot apply the chi-squared test, return chance agreement
+        return False
+
+    T,p = chisquare([disagree, agree], [expected_disagree, expected_agree])
+    w = np.sqrt(T * 1.0 / leaftotal)
+    #print(T,p)
+
+    if p < threshold and w > 0.5: # reject the null
+        return True
+    else:
+        return False
 
 def train_tree(dl):
     x = vstack([dl.X_train, dl.X_test])
@@ -40,49 +73,117 @@ def train_tree(dl):
 def format_tree_rules(rules, loader, feature=None):
     all_rules = []
     rules = rules.split("\n")
-    curDict = defaultdict(dict)
-    for rule in rules:
-        rule = list(filter(lambda x: not x.startswith("|"), rule.split()))
+    curDict = []
+    for num, rule in enumerate(rules):
+        rule = rule.replace("-","").split()
+        level = rule.count("|")
+        rule = list(filter(lambda x: x != "|", rule))
+        if num > 0 and "class:" in rules[num-1]:
+            curDict = curDict[:level-1]
         if rule and ("head" in rule[0] or "dep" in rule[0]): # change if grandchildren?
             if "<=" in rule:
                 if "deprel" in rule[0]:
-                    curDict["deprel"] = rule[0].split("_")[1]
+                    curDict.append(("deprel", "!" + rule[0].split("_")[1]))
                 elif "position" in rule[0]:
-                    curDict["position"] = rule[0].split("_")[1]
+                    curDict.append("position", "!" + rule[0].split("_")[1])
+                elif "pos_head" in rule[0]:
+                    curDict.append(("head", "pos", "!" + rule[0].split("_")[-1]))
+                elif "pos_dep" in rule[0]:
+                    curDict.append(("dep", "pos", "!" + rule[0].split("_")[-1]))
                 else:
                     feat, node, value = rule[0].rsplit("_", maxsplit=2)
                     if feat != "lemma" and feat != "upos":
-                        if "feats" in curDict[node]:
-                            curDict[node]["feats"][feat] = "!" + value
-                        else:
-                            curDict[node]["feats"] = {feat: "!"+value}
+                        curDict.append((node, "feats", feat, "!" + value))
                     elif feat == "upos":
-                        curDict[node]["pos"] = "!" + value
+                        curDict.append((node, "pos", "!" + value))
                     else:
-                        curDict[node][feat] = "!" + value
+                        curDict.append((node, feat, "!" + value))
             elif ">" in rule and "_" in rule[0]:
                 if "deprel" in rule[0]:
-                    curDict["deprel"] = rule[0].split("_")[1]
+                    curDict.append(("deprel", rule[0].split("_")[1]))
                 elif "position" in rule[0]:
-                    curDict["position"] = rule[0].split("_")[1]
+                    curDict.append(("position", rule[0].split("_")[1]))
+                elif "pos_head" in rule[0]:
+                    curDict.append(("head", "pos", rule[0].split("_")[-1]))
+                elif "pos_dep" in rule[0]:
+                    curDict.append(("dep", "pos", rule[0].split("_")[-1]))
                 else:
                     feat, node, value = rule[0].rsplit("_", maxsplit=2)
                     if feat != "lemma" and feat != "upos":
-                        if "feats" in curDict[node]:
-                            curDict[node]["feats"][feat] = value
-                        else:
-                            curDict[node]["feats"] = {feat: value}
+                        curDict.append((node, "feats", feat, value))
                     elif feat == "upos":
-                        curDict[node]["pos"] = value
+                        curDict.append((node, "pos", value))
                     else:
-                        curDict[node][feat] = value
+                        curDict.append((node, feat, value))
         elif "class:" in rule:
-            curDict["rule"] = loader.labels[int(rule[1])]
-            all_rules.append(curDict)
-            curDict = defaultdict(dict)
+            d = curDict.copy()
+            d.append(("rule",  loader.labels[int(rule[1])]))
+            all_rules.append(d)
         else:
             print(rule)
     return all_rules
+
+def filter_rules(rules, loader, significance_level=0.01):
+    filtered_rules = []
+    for rule in rules:
+        sub_df = loader.df.copy()
+        for subrule in rule:
+            value = subrule[-1]
+            #print(sub_df.Number_dep.value_counts())
+            if "deprel" in subrule:
+                if value.startswith("!"):
+                    sub_df = sub_df[sub_df["deprel"] != value]
+                else:
+                    sub_df = sub_df[sub_df["deprel"] == value]
+           # print(sub_df.shape)
+            elif "head" in subrule and "feats" in subrule:
+                feat = subrule[-2]
+                if value.startswith("!"):
+                    if value == "nan":
+                        sub_df = sub_df[sub_df[f"{feat}_dep"].notna()]
+                    else:
+                        sub_df = sub_df[sub_df[f"{feat}_head"] != value]
+                else:
+                    if value == "nan":
+                        sub_df = sub_df[sub_df[f"{feat}_head"].isna()]
+                    else:
+                        sub_df = sub_df[sub_df[f"{feat}_head"] == value]
+               # print(sub_df.shape)
+            elif "dep" in subrule:
+                feat = subrule[-2]
+                if value.startswith("!"):
+                    if value == "!nan":
+                        sub_df = sub_df[sub_df[f"{feat}_dep"].notna()]
+                    else:
+                        sub_df = sub_df[sub_df[f"{feat}_dep"] != value]
+                else:
+                    if value == "nan":
+                        sub_df = sub_df[sub_df[f"{feat}_dep"].isna()]
+                    else:
+                        sub_df = sub_df[sub_df[f"{feat}_dep"] == value]
+               # print(sub_df.shape)
+
+        num_examples = sub_df.shape[0]
+
+        if loader.feature.startswith("agr"):
+            # Observed frequencies
+            O_yes = sub_df[sub_df["target"] == "Yes"].shape[0]
+            O_no = sub_df[sub_df["target"] == "No"].shape[0]
+
+            dist = loader.getFeatureDistribution()
+            # Expected frequencies
+            E_yes = num_examples * dist["Yes"]
+            E_no = num_examples * dist["No"]
+
+            res = chisquare([O_yes, O_no], [E_yes, E_no])
+
+        else:
+            res = chisquare(sub_df.target.value_counts())
+
+        effect_size = res.statistic / num_examples
+        if res.pvalue < 0.01 and effect_size > 0.5:
+            filtered_rules.append(rule)
+    return filtered_rules
 
 def train_sparse_logreg(loader,
                         alpha_start=0.1,
@@ -193,16 +294,16 @@ def train_bayesian_model(data, binary=True):
 
 def compute(treebank, feat, model, deps=None):
     lang = treebank.split("_")[1]
-    deps = ["subj"]
-    feature = f"{lang}_{feat}"
-    paths = glob.glob(f"data/{treebank}_datasets.pkl")[0]
-    loader = DataLoader([paths], feature, deps=deps) # TODO: fix more files
+    deps = ["mod"]
+    paths = glob.glob(f"data/{treebank}_test_datasets.pkl")[0]
+    loader = DataLoader([paths], feat, deps=deps) # TODO: fix more files
     if model == "tree": # based on AutoLEX paper
-        rules = format_tree_rules(train_tree(loader), loader)
+        all_rules = format_tree_rules(train_tree(loader), loader)
+        rules = filter_rules(all_rules, loader)
     elif model == "logreg": # based on GREX paper
         rules = format_logreg_rules(train_sparse_logreg(loader))
     else:
         raise AttributeError(f"Model {model} not implemented yet")
-    with open(f"data/{feature}_{model}.json", "w") as outfile:
-        json.dump(rules, outfile)
+    #with open(f"data/{feature}_{model}.json", "w") as outfile:
+     #   json.dump(rules, outfile)
     print("Done!")
