@@ -12,37 +12,6 @@ import bambi as bmb
 import arviz as az
 from scipy.stats import chisquare
 
-# code based on LASE-Agreement paper
-def isAgreement(feature_distribution, agree, disagree, threshold):
-    leaftotal = agree + disagree
-    if agree < disagree:
-        return False
-
-    chance_agreement = 0.0
-    total = 0.0
-    for type,val in feature_distribution.items():
-        total += val
-    for type, val in feature_distribution.items():
-        p = val * 1.0 / total
-        chance_agreement += (p * p)
-    empirical_distr = [1 - chance_agreement, chance_agreement]
-
-
-    expected_agree = empirical_distr[1] * leaftotal
-    expected_disagree = empirical_distr[0] * leaftotal
-    t = agree * 1.0 / leaftotal
-
-    if min(expected_disagree, expected_agree) < 5: #cannot apply the chi-squared test, return chance agreement
-        return False
-
-    T,p = chisquare([disagree, agree], [expected_disagree, expected_agree])
-    w = np.sqrt(T * 1.0 / leaftotal)
-    #print(T,p)
-
-    if p < threshold and w > 0.5: # reject the null
-        return True
-    else:
-        return False
 
 def train_tree(dl):
     x = vstack([dl.X_train, dl.X_test])
@@ -80,12 +49,12 @@ def format_tree_rules(rules, loader, feature=None):
         rule = list(filter(lambda x: x != "|", rule))
         if num > 0 and "class:" in rules[num-1]:
             curDict = curDict[:level-1]
-        if rule and ("head" in rule[0] or "dep" in rule[0]): # change if grandchildren?
+        if rule and ("head" in rule[0] or "dep" in rule[0] or "position" in rule[0]) : # change if grandchildren?
             if "<=" in rule:
                 if "deprel" in rule[0]:
                     curDict.append(("deprel", "!" + rule[0].split("_")[1]))
                 elif "position" in rule[0]:
-                    curDict.append("position", "!" + rule[0].split("_")[1])
+                    curDict.append(("position", "!" + rule[0].split("_")[1]))
                 elif "pos_head" in rule[0]:
                     curDict.append(("head", "pos", "!" + rule[0].split("_")[-1]))
                 elif "pos_dep" in rule[0]:
@@ -118,6 +87,7 @@ def format_tree_rules(rules, loader, feature=None):
         elif "class:" in rule:
             d = curDict.copy()
             d.append(("rule",  loader.labels[int(rule[1])]))
+
             all_rules.append(d)
         else:
             print(rule)
@@ -125,6 +95,7 @@ def format_tree_rules(rules, loader, feature=None):
 
 def filter_rules(rules, loader, significance_level=0.01):
     filtered_rules = []
+ 
     for rule in rules:
         sub_df = loader.df.copy()
         for subrule in rule:
@@ -165,24 +136,31 @@ def filter_rules(rules, loader, significance_level=0.01):
 
         num_examples = sub_df.shape[0]
 
+        
+
         if loader.feature.startswith("agr"):
             # Observed frequencies
             O_yes = sub_df[sub_df["target"] == "Yes"].shape[0]
             O_no = sub_df[sub_df["target"] == "No"].shape[0]
 
-            dist = loader.getFeatureDistribution()
             # Expected frequencies
+            dist = loader.getFeatureDistribution()
             E_yes = num_examples * dist["Yes"]
             E_no = num_examples * dist["No"]
-
+            
             res = chisquare([O_yes, O_no], [E_yes, E_no])
 
         else:
+            E_yes = num_examples * 0.5
+            E_no = num_examples * 0.5
             res = chisquare(sub_df.target.value_counts())
 
         effect_size = res.statistic / num_examples
-        if res.pvalue < 0.01 and effect_size > 0.5:
+        if min(E_no, E_yes) > 5 and res.pvalue < 0.05 and effect_size > 0.5:
             filtered_rules.append(rule)
+        #else:
+        #    print(res.pvalue, effect_size, E_no, E_yes)
+            
     return filtered_rules
 
 def train_sparse_logreg(loader,
@@ -294,16 +272,18 @@ def train_bayesian_model(data, binary=True):
 
 def compute(treebank, feat, model, deps=None):
     lang = treebank.split("_")[1]
-    deps = ["mod"]
-    paths = glob.glob(f"data/{treebank}_test_datasets.pkl")[0]
-    loader = DataLoader([paths], feat, deps=deps) # TODO: fix more files
+   # paths = glob.glob(f"data/{treebank}_*_datasets.pkl")
+    paths = glob.glob(f"data/{treebank}_train_datasets.pkl")
+    loader = DataLoader(paths, feat, deps=deps) # TODO: fix more files
+    #print(loader.X_train)
     if model == "tree": # based on AutoLEX paper
         all_rules = format_tree_rules(train_tree(loader), loader)
+        # print(all_rules)
         rules = filter_rules(all_rules, loader)
     elif model == "logreg": # based on GREX paper
         rules = format_logreg_rules(train_sparse_logreg(loader))
     else:
         raise AttributeError(f"Model {model} not implemented yet")
-    #with open(f"data/{feature}_{model}.json", "w") as outfile:
-     #   json.dump(rules, outfile)
+    with open(f"data/{lang}_{feat}_{model}.json", "w") as outfile:
+        json.dump(rules, outfile)
     print("Done!")

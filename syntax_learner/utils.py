@@ -6,6 +6,11 @@ lang2gf = {"Macedonian": "Mkd",
            "Kazakh" : "Kaz",
            "Russian": "Rus"}
 
+features = ["PronType", "Gender", "VerbForm", "NumType", "Animacy", "Mood", 
+            "Poss", "NounClass", "Tense", "Reflex", "Number", "Aspect",
+            "Case", "Voice", "Abbr", "Definite", "Evident", "Deixis", "Polarity",
+            "Ref", "Person", "ExtPos", "Degree", "Polite", "Clusivity"]
+
 
 def getParams(lang):
     lang = lang2gf[lang]

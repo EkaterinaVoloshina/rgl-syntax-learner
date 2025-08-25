@@ -123,10 +123,9 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
                 position += 1
     return dataDict
 
-def parse(treebank, deep=False):
+def parse(treebank : str, deep : bool = False):
     lang = treebank.split("_")[1]
     treebanks = glob.glob(f"{treebank}/*.conllu")
-    print(treebanks)
     for treebank_path in treebanks:
         subset = treebank_path.rsplit("-")[-1].replace(".conllu", "")
         datasets = extract(treebank_path, lang, deep)

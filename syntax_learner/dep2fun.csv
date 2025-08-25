@@ -1,0 +1,209 @@
+,function,dependency,dpos,hpos,args
+,AdAP,mod,ADV,,"mod, head"
+,AdAdv,mod,ADJ,,"mod, head"
+,AdNum,mod,ADV,,"mod, head"
+,AdVVP,mod,ADV,,"mod, head"
+,AdVVPSlash,mod,ADV,,"mod, head"
+,AddAdvQVP,mod,ADV,,"head, mod"
+,AdjCN,mod,ADJ,,"mod, head"
+,AdjDAP,mod,ADJ,,"head, mod"
+,AdjOrd,,,,head
+,AdnCAdv,,,,head
+,AdvAP ,mod,ADV,,"head, mod"
+,AdvCN,mod,NOUN,,"head, mod"
+,AdvIAdv,mod,ADV,,"mod, head"
+,AdvIP,mod,ADV,,"head, mod"
+,AdvNP,mod,NOUN,,"head, mod"
+,AdvQVP,obj,,,"head, obj"
+,AdvS,mod,ADV,,"mod, head"
+,AdvSlash,mod,ADV,,"head, mod"
+,AdvVP,mod,ADV,,"head, mod"
+,AdvVPSlash,mod,ADV,,"head, mod"
+,ApposCN,appos,,,"head, appos"
+,BaseAP,conj,,,"head, conj"
+,BaseAdV,conj,ADV,,"head, conj"
+,BaseAdv,conj,ADV,,"head, conj"
+,BaseCN,conj,,,"head, conj"
+,BaseDAP,conj,,,"head, conj"
+,BaseIAdv,conj,,,"head, conj"
+,BaseNP,conj,NOUN,,"head, conj"
+,BaseRS,conj,,,"head, conj"
+,BaseS,conj,,,"head, conj"
+,CAdvAP,case,,,"case, mod, head"
+,CAdvAP,mod,ADJ,,"case, mod, head"
+,CleftAdv,advcl,,,"head, advcl"
+,CleftNP,acl,,,"head, acl"
+,CompAP,,,,head
+,CompAdv,,,,head
+,CompCN,,,,head
+,CompIAdv,,,,head
+,CompIP,,,,head
+,CompNP,,,,head
+,ComparA,mod,ADJ,,"mod, head"
+,ComparAdvAdj,mod,ADV,,"mod, head, obl"
+,ComparAdvAdj,obl,,,
+,ComparAdvAdjS,mod,ADV,,"mod, head, ccomp"
+,ComparAdvAdjS,ccomp,,,"mod, head, ccomp"
+,ComplA2,mod,NOUN,,"head, mod"
+,ComplN2,mod,NOUN,,"head, mod"
+,ComplN3,mod,NOUN,,"head, mod"
+,ComplSlash,obj,,,"head, obj"
+,ComplSlashIP,obj,,,"head, obj"
+,ComplVA,xcomp,,,"head, xcomp"
+,ComplVQ,ccomp,,,"head, ccomp"
+,ComplVS,ccomp,,,"head, ccomp"
+,ComplVV,xcomp,,,"head, xcomp"
+,ConjAP,cc,,ADJ,"cc, head"
+,ConjAdV,cc,,ADV,"cc, head"
+,ConjAdv,cc,,ADV,"cc, head"
+,ConjCN,cc,,,"cc, head"
+,ConjDet,cc,,,"cc, head"
+,ConjIAdv,cc,,ADV,"cc, head"
+,ConjNP,cc,,NOUN,"cc, head"
+,ConjRS,cc,,,"cc, head"
+,ConjS,cc,,,"cc, head"
+,ConsAP,conj,ADJ,,"head, conj"
+,ConsAdV,conj,ADV,,"head, conj"
+,ConsAdv,conj,ADV,,"head, conj"
+,ConsCN,conj,,,"head, conj"
+,ConsDAP,conj,,,"head, conj"
+,ConsIAdv,conj,,,"head, conj"
+,ConsNP,conj,NOUN,,"head, conj"
+,ConsRS,conj,,,"head, conj"
+,ConsS,conj,,,"head, conj"
+,CountNP,det,,,"det, head"
+,DetCN,det,,,"det, head"
+,DetDAP,,,,head
+,DetNP,,,,head
+,DetQuant,mod,NUM,,"head, mod"
+,DetQuantOrd,mod,NUM,,"head, mod, mod"
+,DetQuantOrd,mod,ADJ,,"head, mod, mod"
+,EmbedQS,,,,head
+,EmbedS,,,,head
+,EmbedVP,,,,head
+,ExistIP,,,,head
+,ExistIPAdv,mod,ADV,,"head, mod"
+,ExistNP,,,,head
+,ExistNPAdv,mod,NOUN,,"head, mod"
+,ExtAdvNP,mod,NOUN,,"head, mod"
+,ExtAdvS,mod,ADV,,"mod, head"
+,ExtAdvVP,mod,ADV,,"head, mod"
+,FunRP,case,,,"case, mod, head"
+,FunRP,mod,NOUN,,"case, mod, head"
+,GenericCl,,,,head
+,IDig,,,,head
+,IIDig,,,,"head, goeswith"
+,IdetCN,det,,,"det, head"
+,IdetIP,,,,head
+,IdetQuant,mod,NUM,,"head, mod"
+,ImpP3,obj,,,"obj, head"
+,ImpPl1,,,,head
+,ImpVP,,,,head
+,ImpersCl,,,,head
+,MassNP,,,,head
+,NumCard,,,,head
+,NumDigits,,,,head
+,NumNumeral,,,,head
+,OrdDigits,,,,head
+,OrdNumeral,,,,head
+,OrdNumeralSuperl,mod,NUM,,"mod, head"
+,OrdSuperl,,,,head
+,PConjConj,,,,head
+,PPartNP,xcomp,,,"head, xcomp"
+,PartNP,mod,NOUN,,"head, mod"
+,PhrUtt,cc,,,"cc, head, discourse"
+,PhrUtt,discourse,,,"cc, head, discourse"
+,PositA,,,,head
+,PositAdAAdj,,,,head
+,PositAdvAdj,,,,head
+,PossNP,mod,NOUN,,"head, mod"
+,PossPron,,,,head
+,PredSCVP,csubj,,,"csubj, head"
+,PredVP,subj,NOUN,,"subj, head"
+,PredetNP,det:predet,,,"det:predet, head"
+,PrepIP,case,,,"case, head"
+,PrepNP,case,,,"case, head"
+,ProgrVP,,,,head
+,QuestCl,,,,head
+,QuestIAdv,mod,ADV,,"mod, head"
+,QuestIComp,subj,NOUN,,"head, subj"
+,QuestQVP,subj,NOUN,,"subj, head"
+,QuestSlash,obj,,,"obj, head"
+,QuestVP,subj,NOUN,,"subj, head"
+,ReflA2,,,,head
+,RelCN,acl:relcl,,,"head, acl:relcl"
+,RelCl,,,,head
+,RelNP,acl:relcl,,,"head, acl:relcl"
+,RelS,advcl,,,"head, advcl"
+,RelSlash,mark,,,"mark, head"
+,RelVP,mark,,,"mark, head"
+,SSubjS,mark,,,"head, mark, advcl"
+,SSubjS,advcl,,,"head, mark, advcl"
+,SelfAdVVP,,,,head
+,SelfAdvVP,,,,head
+,SelfNP,,,,head
+,SentAP,acl,,,"head, acl"
+,SentCN,acl,,,"head, acl"
+,Slash2V3,iobj,,,"head, iobj"
+,SlashPrep,case,,,"head, case"
+,SlashV2A,xcomp,,,"head, xcomp"
+,SlashV2Q,ccomp,,,"head, ccomp"
+,SlashV2S,ccomp,,,"head, ccomp"
+,SlashV2V,xcomp,,,"head, xcomp"
+,SlashV2VNP,obj,,,"head, obj, xcomp"
+,SlashV2VNP,xcomp,,,"head, obj, xcomp"
+,SlashV2a,,,,head
+,SlashVP,subj,,,"subj, head"
+,SlashVS,subj,NOUN,,"subj, head, ccomp"
+,SlashVS,subj,NOUN,,"subj, head, ccomp"
+,SlashVV,ccomp,,,"head, ccomp"
+,SubjS,mark,,,"mark, head"
+,TTAnt,aux,,,"aux, head"
+,Use2N3,,,,head
+,Use3N3,,,,head
+,UseA2,,,,head
+,UseCl,aux,,,"aux, mod, head"
+,UseCl,mod,ADV,,"aux, mod, head"
+,UseComp,,,,head
+,UseComparA,,,,head
+,UseN,,,,head
+,UsePN,,,,head
+,UsePron,,,,head
+,UseQCl,aux,,,"aux, mod, head"
+,UseQCl,mod,ADV,,"aux, mod, head"
+,UseRCl,aux,,,"aux, mod, head"
+,UseRCl,mod,ADV,,"aux, mod, head"
+,UseSlash,aux,,,"aux, mod, head"
+,UseSlash,mod,ADV,,"aux, mod, head"
+,UseV,,,,head
+,UttAP,,,,head
+,UttAdv,,,,head
+,UttCN,,,,head
+,UttCard,,,,head
+,UttIAdv,,,,head
+,UttIP,,,,head
+,UttImpPl,aux,,,"aux, head"
+,UttImpPol,aux,,,"aux, head"
+,UttImpSg,aux,,,"aux, head"
+,UttInterj,,,,head
+,UttNP,,,,head
+,UttQS,,,,head
+,UttS,,,,head
+,UttVP,,,,head
+,VPSlashPrep,case,,,"head, case"
+,VocNP,,,,head
+,UttPunctTop,punct,,,"head, punct"
+,UttVocativePunctTop,vocative,,,"head, vocative, punct"
+,UttVocativePunctTop,punct,,,"head, vocative, punct"
+,ConjUttPunctTop,cc,,,"cc, head, punct"
+,ConjUttPunctTop,punct,,,"cc, head, punct"
+,CompoundN,compound,,,"compound, head"
+,CompoundPN,compound,,,"compound, head"
+,FlatPN,flat,,,"head, flat"
+,GenModNP,mod,,,"mod, mod:poss, head"
+,GenModNP,mod:poss,,,"mod, mod:poss, head"
+,PredPassVPSlash,subj:pass,NOUN,,"subj:pass, head"
+,PredPassSCVPSlash,csubj:pass,,,"csubj:pass, head"
+,UttList,list,,,"head, list"
+,DirectComplVS,parataxis,,,"head, parataxis"
+,ApposNP,appos,,,"head, appos"
