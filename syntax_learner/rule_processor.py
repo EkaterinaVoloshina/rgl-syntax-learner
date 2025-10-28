@@ -123,7 +123,7 @@ def process_subrules(rule):
         for feat, values in dep_feats.items():
             exist = [x for x in values if not x.startswith("!")]
             if exist:
-                dfeats[feat] = exist
+                dfeats[feat] = exist[0]
             else: 
                 dfeats[feat] = values
     
@@ -132,20 +132,20 @@ def process_subrules(rule):
         for feat, values in head_feats.items():
             exist = [x for x in values if not x.startswith("!")]
             if exist:
-                hfeats[feat] = exist
+                hfeats[feat] = exist[0]
             else: 
                 hfeats[feat] = values
 
-    return dep, hpos, dpos, hfeats, dfeats
+    return dep, hpos, dpos, hfeats, dfeats, rule_class
     
 
 def get_rules(rules, rule_mark):
-    grammar_rules = []
+    grammar_rules = defaultdict(list)
     dep2fun = get_dep2fun()
 
     for rule in rules:
         
-        dep, hpos, dpos, hfeats, dfeats,  = process_subrules(rule)
+        dep, hpos, dpos, hfeats, dfeats, rule_class  = process_subrules(rule)
                     
         if isinstance(dep, str) and dep in dep2fun:
             functions = dep2fun[dep]
@@ -153,7 +153,7 @@ def get_rules(rules, rule_mark):
                 if filter_by_pos(function["dpos"], dpos) and filter_by_pos(function["hpos"], hpos):
                     gr_rule = process_function(function, dep, rule_mark, rule_class, hpos, dpos, dfeats, hfeats)
                     if gr_rule:
-                        grammar_rules.append(gr_rule)
+                        grammar_rules[function["function"]].append(gr_rule)
                            
         elif isinstance(dep, list):
             dep = [i[1:] for i in dep]
@@ -161,8 +161,96 @@ def get_rules(rules, rule_mark):
                 if fun not in dep:
                     for function in val:
                         if filter_by_pos(function["dpos"], dpos) and filter_by_pos(function["hpos"], hpos):
-                            gr_rule = process_function(function, dep, rule_mark, rule_class, hpos, dpos, dfeats, hfeats)
+                            gr_rule = process_function(function, fun, rule_mark, rule_class, hpos, dpos, dfeats, hfeats)
                             if gr_rule:
-                                grammar_rules.append(gr_rule)      
+                                grammar_rules[function["function"]].append(gr_rule)      
         
     return grammar_rules
+
+
+def compare_cond(val1, val2):
+    match = True
+    conditions = None
+    if isinstance(val1, str): # if val1 is a positive value, for example, NOUN
+        if "!"+val1 in val2 or (isinstance(val2, str) and val1 != val2):
+            match = False
+        else:
+            conditions = val1
+    elif isinstance(val1, list):
+        if (isinstance(val2, str) and "!"+val2 in val1):
+            match = False
+        elif isinstance(val2, str):
+            conditions = val2
+        else:
+            conditions = (list(set(val1 + val2)))
+    return match, conditions
+
+def compare_rules(f1, rules_f1, f2, rules_f2):
+    new_rules = []
+    i = 0
+    for r1 in rules_f1:
+        for r2 in rules_f2:
+            matchFound = True
+            conditions = {}
+            for cond1, val1 in r1["conditions"].items():
+                if val1:
+                    if val2 := r2["conditions"].get(cond1):
+                        if isinstance(val1, dict):
+                            subconds = {}
+                            for c1, v1 in val1.items():
+                                if v2 := val2.get(c1):
+                                        matchFound, cond = compare_cond(v1, v2)
+                                        if not matchFound:
+                                            break
+                                        else:
+                                            subconds[c1] = cond
+                                else:
+                                    subconds[c1] = v1
+                            diff = val2.keys() - val1.keys()
+                            for d in diff:
+                                subconds[d] = val2[d]
+                                
+                            if not matchFound:
+                                break
+                            else:
+                                conditions[cond1] = subconds
+                        else:
+                            matchFound, cond = compare_cond(val1, val2)
+                            if not matchFound:
+                                break
+                            else:
+                                conditions[cond1] = cond
+                    else:
+                        conditions[cond1] = val1
+                else:
+                    conditions[cond1] = r2["conditions"][cond1]
+    
+            if matchFound:
+                new_rule = {}
+                new_rule["left-side"] = r1["left-side"]
+                if f1:
+                    new_rule["right-side"] = {f1: r1["right-side"],
+                                          f2: r2["right-side"]}
+                else:
+                    new_rule["right-side"] = r1["right-side"]
+                    new_rule["right-side"][f2] = r2["right-side"]
+                new_rule["conditions"] = conditions
+                i += 1
+                new_rules.append(new_rule)
+            if f2:
+                new_rule_2 = {}
+                new_rule_2["left-side"] = r2["left-side"]
+                new_rule_2["right-side"] = {f2: r2["right-side"]}
+                new_rule_2["conditions"] = r2["conditions"]
+            else:
+                new_rules.append(r2)
+            
+    
+        if f1:
+            new_rule_1 = {}
+            new_rule_1["left-side"] = r1["left-side"]
+            new_rule_1["right-side"] = {f1: r1["right-side"]}
+            new_rule_1["conditions"] = r1["conditions"]
+        else:
+            new_rules.append(r1)
+    return new_rules

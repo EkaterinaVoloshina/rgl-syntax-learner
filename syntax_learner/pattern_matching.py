@@ -5,7 +5,7 @@ import json
 import pickle
 import glob
 import conllu as cn
-from syntax_learner.utils import getParams
+from syntax_learner.utils import getParams, features, ud2gfPOS
 
 exclude_feat = ["Gloss", "Translit", "LTranslit"]
 
@@ -52,7 +52,7 @@ def process(deprel, dep, head, headId, depId, idx, deep=False):
 
 
 def extract(treebank_path: str, lang: str, deep: bool = False):
-    params = getParams(lang.split("-")[0])
+    inh_params, params = getParams(lang.split("-")[0])
     with open(treebank_path, "r") as f:
         data = f.read()
     sentences = cn.parse(data)
@@ -70,41 +70,47 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
                 root = {f"{k}_dep": v for k, v in token["feats"].items()} if token["feats"] else {}
             if isinstance(token["id"], int) and deprel != "root" and deprel != "punct":
                 headData = sentence.filter(id=head)[0]
-                output = process(deprel, token, headData, head, token["id"], idx)
-                groups[head].append((output, token["id"]))
-                if deprel == "subj":  # omitting subject: possible ??
-                    subj = True
-                if head < token["id"]:
-                    data = output.copy()
-                    data["target"] = "Yes"
-                    dataDict["wordOrder"].append(data)
-                else:
-                    data = output.copy()
-                    data["target"] = "No"
-                    dataDict["wordOrder"].append(data)
-                    # MATCHING
+                if headData["upos"] in ud2gfPOS and token["upos"] in ud2gfPOS:
+                    output = process(deprel, token, headData, head, token["id"], idx)
+                    groups[head].append((output, token["id"]))
+                    if deprel == "subj":  # omitting subject: possible ??
+                        subj = True
+                    if head < token["id"]:
+                        data = output.copy()
+                        data["target"] = "Yes"
+                        dataDict["wordOrder"].append(data)
+                    else:
+                        data = output.copy()
+                        data["target"] = "No"
+                        dataDict["wordOrder"].append(data)
+                        # MATCHING
 
-                if token["feats"]:
-                    for feat, val in token["feats"].items():
-                        if not params or feat in params:
-                            if headData["feats"] and feat in headData["feats"] and val == headData["feats"][feat]:
+                    if token["feats"]:
+                        for feat, val in token["feats"].items():
+                            if feat in features and feat not in inh_params.get(ud2gfPOS[token["upos"]], []):
+                                if headData["feats"] and feat in headData["feats"] and val == headData["feats"][feat]:
+                                    data = output.copy()
+                                    data["target"] = "Yes"
+                                    dataDict[f"agr_{feat}"].append(data)
+                                else:
+                                    data = output.copy()
+                                    data["target"] = "No"
+                                    dataDict[f"agr_{feat}"].append(data)
+                            
+                            # FEATURE MARKING
                                 data = output.copy()
-                                data["target"] = "Yes"
-                                dataDict[f"agr_{feat}"].append(data)
-                            else:
+                                data["target"] = val
+                                dataDict[f"dep_{feat}"].append(data)
+                    if headData["feats"]:
+                        print(headData["upos"])
+                        
+                        for feat, val in headData["feats"].items():
+
+                            if feat in features and feat not in inh_params.get(ud2gfPOS[headData["upos"]], []):
                                 data = output.copy()
-                                data["target"] = "No"
-                                dataDict[f"agr_{feat}"].append(data)
-                        # FEATURE MARKING
-                            data = output.copy()
-                            data["target"] = val
-                            dataDict[f"dep_{feat}"].append(data)
-                if headData["feats"]:
-                    for feat, val in headData["feats"].items():
-                        if not params or feat in params:
-                            data = output.copy()
-                            data["target"] = val
-                            dataDict[f"dep_{feat}"].append(data)
+                                data["target"] = val
+                                dataDict[f"head_{feat}"].append(data)
+
         if subj:
             root["target"] = "Yes"
             dataDict["subj_exists"].append(root)

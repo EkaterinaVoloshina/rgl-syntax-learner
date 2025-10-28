@@ -85,12 +85,22 @@ def format_tree_rules(rules, loader, feature=None):
                     else:
                         curDict.append((node, feat, value))
         elif "class:" in rule:
+            rule_label = loader.labels[int(rule[1])]
             d = curDict.copy()
-            d.append(("rule",  loader.labels[int(rule[1])]))
+            
+            if all_rules:
+                prev_rule = all_rules[-1]
+                if all_rules and prev_rule[-1][-1] == rule_label:
+                    diff = list(set(prev_rule[:-1]) ^ set(d))
+                    if (len(diff) == 2 and diff[0][:-1] == diff[1][:-1]) or len(diff) == 1:
+                        print(diff)
+                        all_rules = all_rules[::-1]
+                        d = list(set(d) - set(diff))
+                        prev_rule = all_rules[-1]
+                                
 
+            d.append(("rule",  rule_label))
             all_rules.append(d)
-        else:
-            print(rule)
     return all_rules
 
 def filter_rules(rules, loader, significance_level=0.01):
@@ -278,7 +288,6 @@ def compute(treebank, feat, model, deps=None):
     #print(loader.X_train)
     if model == "tree": # based on AutoLEX paper
         all_rules = format_tree_rules(train_tree(loader), loader)
-        # print(all_rules)
         rules = filter_rules(all_rules, loader)
     elif model == "logreg": # based on GREX paper
         rules = format_logreg_rules(train_sparse_logreg(loader))
