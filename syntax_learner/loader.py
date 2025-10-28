@@ -29,15 +29,16 @@ class DataLoader:
                 elif "test" in path:
                     test = path 
             self.X_train, self.y_train = self.transform(self.read_data(train))
-            self.X_dev, self.y_dev = self.transform(self.read_data(dev)) # TODO: should be just transform
-            self.X_test, self.y_test = self.transform(self.read_data(test)) # TODO: should be just tranform
+           # self.X_dev, self.y_dev = self.transform(self.read_data(dev)) # TODO: should be just transform
+           # self.X_test, self.y_test = self.transform(self.read_data(test)) # TODO: should be just tranform
         else:
             dfs = []
-            for path in paths:
-                dfs.append(self.read_data(path))
-            df = pd.concat(dfs)
+           # for path in paths:
+           #     dfs.append(self.read_data(path))
+          #  df = pd.concat(dfs)
+            df = self.read_data(paths[0])
             X, y = self.transform(df)
-          #  X_train_dev, self.X_test, y_train_dev, self.y_test = train_test_split(X, y)
+           # X_train_dev, self.X_test, y_train_dev, self.y_test = train_test_split(X, y)
            # self.X_train, self.X_dev, self.y_train, self.y_dev = train_test_split(X_train_dev, y_train_dev)
             self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(X, y)
 
