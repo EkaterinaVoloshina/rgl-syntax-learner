@@ -102,7 +102,6 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
                                 data["target"] = val
                                 dataDict[f"dep_{feat}"].append(data)
                     if headData["feats"]:
-                        print(headData["upos"])
                         
                         for feat, val in headData["feats"].items():
 
