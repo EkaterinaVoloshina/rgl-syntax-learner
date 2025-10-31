@@ -87,8 +87,8 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
 
                     if token["feats"]:
                         for feat, val in token["feats"].items():
-                            if feat in features and feat not in inh_params.get(ud2gfPOS[token["upos"]], []):
-                                if headData["feats"] and feat in headData["feats"] and val == headData["feats"][feat]:
+                            if feat in features and headData["feats"] and feat in headData["feats"]: 
+                                if val == headData["feats"][feat]:
                                     data = output.copy()
                                     data["target"] = "Yes"
                                     dataDict[f"agr_{feat}"].append(data)
@@ -98,6 +98,7 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
                                     dataDict[f"agr_{feat}"].append(data)
                             
                             # FEATURE MARKING
+                            if feat in features and feat not in inh_params.get(ud2gfPOS[token["upos"]], []):
                                 data = output.copy()
                                 data["target"] = val
                                 dataDict[f"dep_{feat}"].append(data)
