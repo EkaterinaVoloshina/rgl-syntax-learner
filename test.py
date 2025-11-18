@@ -5,20 +5,12 @@ from tqdm.auto import tqdm
 
 
 # head features? 
-generator = GrammarGenerator("tree", "Russian-SynTagRus")
+generator = GrammarGenerator("logreg", "Macedonian-MTB")
 #generator.extract_all()
-rules = generator.generate_grammar()
+#rules = generator.generate_grammar()
+generator.match_rules()
+generator.rank_rules()
+generator.generate_code()
 
 
-with open("test.json", "w") as f:
-    json.dump(rules,f)
-
-feats = list(rules["AdjCN"].keys())
-f1 = feats[0]
-rules_0 = rules["AdjCN"][f1]
-#for feat in tqdm(feats[1:]):
-#    print(f1, feat)
-#    rules_1 = rules["AdjCN"][feat]
-#    rules_0 = compare_rules(f1, rules_0, feat, rules_1)
-#    f1 = None
 
