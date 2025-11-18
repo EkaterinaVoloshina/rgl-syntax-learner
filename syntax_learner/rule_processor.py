@@ -1,9 +1,10 @@
 
 from collections import defaultdict
 import pandas as pd
+from tqdm.auto import tqdm
 
 def get_dep2fun():
-    df = pd.read_csv("dep2fun.csv")
+    df = pd.read_csv("syntax_learner/dep2fun.csv")
     df = df.fillna("-")
     dep2fun = defaultdict(list)
     for _, x in df.iterrows():
@@ -52,7 +53,7 @@ def process_function(function, dep, rule_mark, rule_class, hpos, dpos, dfeats, h
     elif rule_mark == "linearOrder":
         pass
     else: 
-        raise ValueError("Unknown feature")
+        raise ValueError(f"Unknown feature: {rule_mark}")
     
     if rs: 
         return {
@@ -139,13 +140,13 @@ def process_subrules(rule):
     return dep, hpos, dpos, hfeats, dfeats, rule_class
     
 
-def get_rules(rules, rule_mark):
+def get_rules(rules, rule_mark, dep2fun):
     grammar_rules = defaultdict(list)
-    dep2fun = get_dep2fun()
 
     for rule in rules:
         
         dep, hpos, dpos, hfeats, dfeats, rule_class  = process_subrules(rule)
+
                     
         if isinstance(dep, str) and dep in dep2fun:
             functions = dep2fun[dep]
@@ -254,3 +255,189 @@ def compare_rules(f1, rules_f1, f2, rules_f2):
         else:
             new_rules.append(r1)
     return new_rules
+
+
+def get_matches(dep2fun, rules, data):
+    results = defaultdict(dict)
+    for fun, val in tqdm(dep2fun.items()): 
+        results[fun] = {}
+        for feat_name, subrules in rules[fun].items(): 
+            if fun in feat_name:
+                all_matches = []
+                correct = defaultdict(list)
+                covered = defaultdict(list)
+                for sent in data[feat_name]:
+                    feat = feat_name.split("_", maxsplit=1)[-1]
+                    if val["deprel"] == sent["deprel"]:
+                        if (not val["hpos"] or val["hpos"] == sent["pos_head"] or "!" + sent["pos_head"] not in val["hpos"]) and (not val["dpos"] or val["dpos"] == sent["pos_dep"] or "!" + sent["pos_dep"] not in val["dpos"]):
+                            all_matches.append(sent["sent_id"])
+                            for num, subrule in enumerate(subrules):
+                                mismatch = False
+                                if not val["hpos"]:
+                                    if subrule["conditions"]["hpos"]:
+                                        if isinstance(subrule["conditions"]["hpos"], str) and sent["pos_head"] != subrule["conditions"]["hpos"]:
+                                            mismatch = True 
+                                            break
+                                        elif isinstance(subrule["conditions"]["hpos"], list) and "!" + sent["pos_head"] in subrule["conditions"]["hpos"]:
+                                            mismatch = True 
+                                            break
+                                    if subrule["conditions"]["dpos"]:
+                                        if isinstance(subrule["conditions"]["dpos"], str) and sent["pos_dep"] != subrule["conditions"]["dpos"]:
+                                            mismatch = True 
+                                            break
+                                        elif isinstance(subrule["conditions"]["dpos"], list) and "!" + sent["pos_dep"] in subrule["conditions"]["dpos"]:
+                                            mismatch = True 
+                                            break
+                                    
+                                if not mismatch: 
+                                    for f_name, f_val in subrule["conditions"]["hfeats"].items():
+                                        if f"{f_name}_head" in sent:
+                                            if isinstance(f_val, str) and sent[f"{f_name}_head"] != f_val:
+                                                mismatch = True
+                                                
+                                                break 
+                                            elif isinstance(f_val, list) and "!" + sent[f"{f_name}_head"] in f_val:
+                                                mismatch = True
+                                                
+                                                break
+                                if not mismatch: 
+                                    for f_name, f_val in subrule["conditions"]["dfeats"].items():
+                                        if f"{f_name}_dep" in sent:
+                                            if isinstance(f_val, str) and sent[f"{f_name}_dep"] != f_val:
+                                                mismatch = True
+                                                
+                                                break 
+                                            elif isinstance(f_val, list) and "!" + sent[f"{f_name}_dep"] in f_val:
+                                                mismatch = True
+                                                
+                                                break
+        
+
+                                if not mismatch:
+                                    covered[num].append(sent["sent_id"])
+                                    if feat == "wordOrder":
+                                        if sent["target"] == "No" and subrule["right-side"].index("head") == 1:
+                                            correct[num].append(sent["sent_id"])
+                                        elif sent["target"] == "Yes" and subrule["right-side"].index("head") == 0:
+                                            correct[num].append(sent["sent_id"])
+                                    elif "agr" in feat and sent["target"] == "Yes":
+                                        correct[num].append(sent["sent_id"])
+                                    elif "dep" in feat:
+                                        feature = feat.replace("dep_", "")
+                                        _, v = next(iter(subrule["right-side"].items()))
+                                        if v[feature] == sent["target"]:
+                                            correct[num].append(sent["sent_id"])
+                                    elif "head" in feat:
+                                        feature = feat.replace("head_", "")
+                                        if subrule["right-side"]["head"][feature] == sent["target"]:
+                                            correct[num].append(sent["sent_id"])
+
+                    
+                    results[fun][feat_name] = {"all_matches": all_matches,
+                                    "correct" : correct,
+                                    "covered": covered}
+    return results
+
+def get_scores(rule_name, rules, matches):
+    feats = defaultdict(list)
+    for f in rules[rule_name].keys():
+        if "_" in f and "wordOrder" not in f:
+            feats[f.split("_")[-1]].append(f)
+
+
+    feat_0 = f"{rule_name}_wordOrder"
+    if feat_0 not in matches[rule_name]:
+        feat_0 = list(matches[rule_name].keys())[0]
+       # print(matches[rule_name].keys())
+    ss = set(matches[rule_name][feat_0]["all_matches"])
+    correct_0 = {((feat_0, k),):v for k, v in matches[rule_name][feat_0]["correct"].items()}
+    covered_0 = {((feat_0, k),):v for k, v in matches[rule_name][feat_0]["covered"].items()}
+    subset_0 = {((feat_0, k),): ss for k, v in matches[rule_name][feat_0]["covered"].items()}
+
+
+    rule_score = {}
+
+
+    for _, fts in tqdm(feats.items()):
+        new_covered = {}
+        new_correct = {}
+        new_subset = {}
+        for feat in fts:
+            if feat in matches[rule_name]:
+                subset_1  = set(matches[rule_name][feat]["all_matches"])
+                if subset_1:
+                    correct_1 = {((feat, k),):v for k, v in matches[rule_name][feat]["correct"].items()}
+                    covered_1 =  {((feat, k),):v for k, v in matches[rule_name][feat]["covered"].items()}
+
+                    new_covered |= covered_1
+                    new_correct |= correct_1
+
+                    for num0, cov0 in covered_0.items():
+                        for num1, cov1 in covered_1.items():
+                            new_subset[num1] = subset_1
+                            inter_set = set(subset_0[num0]).intersection(subset_1)
+            
+                            if inter_set:
+                                cor0 = correct_0.get(num0,[])
+                                cor1 = correct_1.get(num1,[])
+
+                                new_cor = set(cor0).intersection(set(cor1))
+                                new_cov = set(cov0).intersection(set(cov1))
+
+                                
+                                n0 = list(num0)
+                                n0.append(num1[0])
+                                num = tuple(n0)
+                                
+
+                                new_covered[num] = new_cov
+                                new_correct[num] = new_cor
+                                new_subset[num] = inter_set
+
+                
+
+                                coverage = len(new_cov)/len(inter_set) if inter_set else 0
+                                precision = len(new_cor)/len(new_cov) if new_cov else 0
+
+                                fscore = (2 * precision * coverage) / (precision + coverage) if coverage > 0 else 0
+                                rule_score[num] = (coverage, precision, fscore)
+                    
+
+
+        correct_0 |= new_correct
+        covered_0 |= new_covered
+        subset_0 |= new_subset
+    d = {"covered": covered_0,
+        "correct": correct_0}
+
+    return rule_score, d
+
+def get_rule_description(example_rule, rules):
+			rule_description = []
+			hpos = []
+			dpos = []
+			dfeats = {}
+			hfeats = {}
+			for i, num in example_rule:
+				fun, rule = i.split("_", maxsplit=1)
+				rule_d = rules[fun][i][num]
+				if isinstance(rule_d["conditions"]["hpos"], str):
+					hpos.append(rule_d["conditions"]["hpos"])
+				else:
+					hpos += rule_d["conditions"]["hpos"]
+				if isinstance(rule_d["conditions"]["dpos"], str):
+					dpos.append(rule_d["conditions"]["dpos"])
+				else:
+					dpos += rule_d["conditions"]["dpos"]
+				dfeats |= rule_d["conditions"]["dfeats"]
+				hfeats |= rule_d["conditions"]["hfeats"]
+				rule_description.append(rule_d)
+			n_rules = len(rule_description)
+			n_cond = 0 
+
+			if hpos:
+				n_cond += 1
+			if dpos:
+				n_cond += 1
+			n_cond += len(dfeats) + len(hfeats)
+			return rule_description, n_rules, n_cond

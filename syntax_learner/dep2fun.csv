@@ -1,16 +1,16 @@
 ,function,dependency,dpos,hpos,args
-,AdAP,mod,ADV,,"mod, head"
-,AdAdv,mod,ADJ,,"mod, head"
-,AdNum,mod,ADV,,"mod, head"
-,AdVVP,mod,ADV,,"mod, head"
-,AdVVPSlash,mod,ADV,,"mod, head"
-,AddAdvQVP,mod,ADV,,"head, mod"
-,AdjCN,mod,ADJ,,"mod, head"
-,AdjDAP,mod,ADJ,,"head, mod"
+,AdAP,mod,ADV,ADJ,"mod, head"
+,AdAdv,mod,ADV,ADV,"mod, head"
+,AdNum,mod,ADV,NUM,"mod, head"
+,AdVVP,mod,ADV,VERB,"mod, head"
+,AdVVPSlash,mod,ADV,VERB,"mod, head"
+,AddAdvQVP,mod,ADV,VERB,"head, mod"
+,AdjCN,mod,ADJ,NOUN,"mod, head"
+,AdjDAP,mod,ADJ,ADJ,"head, mod"
 ,AdjOrd,,,,head
 ,AdnCAdv,,,,head
-,AdvAP ,mod,ADV,,"head, mod"
-,AdvCN,mod,NOUN,,"head, mod"
+,AdvAP ,mod,NOUN,ADJ,"head, mod"
+,AdvCN,mod,NOUN,NOUN,"head, mod"
 ,AdvIAdv,mod,ADV,,"mod, head"
 ,AdvIP,mod,ADV,,"head, mod"
 ,AdvNP,mod,NOUN,,"head, mod"
@@ -166,9 +166,9 @@
 ,UseCl,mod,ADV,,"aux, mod, head"
 ,UseComp,,,,head
 ,UseComparA,,,,head
-,UseN,,,,head
-,UsePN,,,,head
-,UsePron,,,,head
+,UseN,,,NOUN,head
+,UsePN,,,NAME,head
+,UsePron,,,PRON,head
 ,UseQCl,aux,,,"aux, mod, head"
 ,UseQCl,mod,ADV,,"aux, mod, head"
 ,UseRCl,aux,,,"aux, mod, head"

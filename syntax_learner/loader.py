@@ -8,15 +8,19 @@ from sklearn.model_selection import train_test_split
 
 
 class DataLoader:
-    def __init__(self, paths,
+    def __init__(self,
                  feature,
                  encoding="one-hot",
+                 df = None, 
+                 paths = [],
                  deps=None):
         self.encoding = encoding
         self.feature = feature
         self.deps = deps
-
-        self.df = self.read_data(paths[0])
+        if paths:
+            self.df = self.read_data(paths[0])
+        else:
+            self.df = df
         
 
         if len(paths) == 3:
@@ -36,11 +40,13 @@ class DataLoader:
            # for path in paths:
            #     dfs.append(self.read_data(path))
           #  df = pd.concat(dfs)
-            df = self.read_data(paths[0])
             X, y = self.transform(df)
            # X_train_dev, self.X_test, y_train_dev, self.y_test = train_test_split(X, y)
            # self.X_train, self.X_dev, self.y_train, self.y_dev = train_test_split(X_train_dev, y_train_dev)
-            self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(X, y)
+            if X.shape[0] * 0.75 > 3:
+                self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(X, y)
+            else:
+                self.X_train, self.X_test, self.y_train, self.y_test = None, None, None, None
 
     def read_data(self, path):
         with open(path, 'rb') as f:
@@ -97,8 +103,8 @@ class DataLoader:
         return p
 
     def transform(self, df):
-        if self.feature.startswith("agr") or self.feature.startswith("head") or self.feature.startswith("dep"):
-            feat = self.feature.split("_")[1]
+        if "agr" in self.feature or "head" in self.feature or "dep" in self.feature:
+            feat = self.feature.split("_")[-1]
             if f"{feat}_head" in df.columns:
                 df = df.drop([f"{feat}_head"], axis=1)
             if f"{feat}_dep" in df.columns:
@@ -106,7 +112,7 @@ class DataLoader:
         elif self.feature.endswith("Order"):
             df = df.drop(["position"], axis=1)
         else:
-            raise ValueError(f"Unknown feature: {self.feature}")
+            print(f"Unknown feature: {self.feature}")
         X = []
         encoder = LabelEncoder()
         y = encoder.fit_transform(df["target"].array)

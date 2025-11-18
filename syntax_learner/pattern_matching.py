@@ -5,9 +5,11 @@ import json
 import pickle
 import glob
 import conllu as cn
+import pandas as pd
+import numpy as np
 from syntax_learner.utils import getParams, features, ud2gfPOS
 
-exclude_feat = ["Gloss", "Translit", "LTranslit"]
+exclude_feat = ["Gloss", "Translit", "LTranslit", "Shared"]
 
 def toJSON(pattern: str,
            deprel: str,
@@ -47,11 +49,11 @@ def process(deprel, dep, head, headId, depId, idx, deep=False):
         sentData["deprel"] = deprel.split("@")[0]
     else:
         sentData["deprel"] = deprel
-    sentData["sent_id"] = idx
+    sentData["sent_id"] = "-".join([idx, str(headId), str(depId)])
     return sentData
 
 
-def extract(treebank_path: str, lang: str, deep: bool = False):
+def extract(treebank_path: str, lang: str, deep: bool = False, funs=None):
     inh_params, params = getParams(lang.split("-")[0])
     with open(treebank_path, "r") as f:
         data = f.read()
@@ -78,10 +80,16 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
                     if head < token["id"]:
                         data = output.copy()
                         data["target"] = "Yes"
-                        dataDict["wordOrder"].append(data)
+                        
                     else:
                         data = output.copy()
                         data["target"] = "No"
+                    if funs:
+                        for fname, fun in funs.items():
+                            if fun["deprel"] and data["deprel"] == fun["deprel"]:
+                                if (not fun["hpos"] or fun["hpos"] == data["pos_head"]) and (not fun["dpos"] or fun["dpos"] == data["pos_dep"]):
+                                    dataDict[f"{fname}_wordOrder"].append(data)
+                    else:            
                         dataDict["wordOrder"].append(data)
                         # MATCHING
 
@@ -91,17 +99,32 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
                                 if val == headData["feats"][feat]:
                                     data = output.copy()
                                     data["target"] = "Yes"
-                                    dataDict[f"agr_{feat}"].append(data)
                                 else:
                                     data = output.copy()
                                     data["target"] = "No"
+                                    
+                                if funs:
+                                    for fname, fun in funs.items():
+                   
+                                        if fun["deprel"] and data["deprel"] == fun["deprel"]:
+                                            if (not fun["hpos"] or fun["hpos"] == data["pos_head"]) and (not fun["dpos"] or fun["dpos"] == data["pos_dep"]):
+                                                dataDict[f"{fname}_agr_{feat}"].append(data)
+                                else:
                                     dataDict[f"agr_{feat}"].append(data)
+
                             
                             # FEATURE MARKING
                             if feat in features and feat not in inh_params.get(ud2gfPOS[token["upos"]], []):
                                 data = output.copy()
                                 data["target"] = val
-                                dataDict[f"dep_{feat}"].append(data)
+                                if funs:
+                                    for fname, fun in funs.items():
+                   
+                                        if fun["deprel"] and data["deprel"] == fun["deprel"]:
+                                            if (not fun["hpos"] or fun["hpos"] == data["pos_head"]) and (not fun["dpos"] or fun["dpos"] == data["pos_dep"]):
+                                                dataDict[f"{fname}_dep_{feat}"].append(data)
+                                else:             
+                                    dataDict[f"dep_{feat}"].append(data)
                     if headData["feats"]:
                         
                         for feat, val in headData["feats"].items():
@@ -109,13 +132,22 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
                             if feat in features and feat not in inh_params.get(ud2gfPOS[headData["upos"]], []):
                                 data = output.copy()
                                 data["target"] = val
-                                dataDict[f"head_{feat}"].append(data)
+                                if funs:
+                                    for fname, fun in funs.items():
+                   
+                                        if fun["deprel"] and data["deprel"] == fun["deprel"]:
+                                            if (not fun["hpos"] or fun["hpos"] == data["pos_head"]) and (not fun["dpos"] or fun["dpos"] == data["pos_dep"]):
+
+                                                dataDict[f"{fname}_head_{feat}"].append(data)
+                                else:
+                                    dataDict[f"head_{feat}"].append(data)
 
         if subj:
             root["target"] = "Yes"
             dataDict["subj_exists"].append(root)
         else:
             root["target"] = "No"
+        
             dataDict["subj_exists"].append(root)
 
         # LINEAR RULES
@@ -132,9 +164,20 @@ def extract(treebank_path: str, lang: str, deep: bool = False):
 def parse(treebank : str, deep : bool = False):
     lang = treebank.split("_")[1]
     treebanks = glob.glob(f"{treebank}/*.conllu")
+    fun_df = pd.read_csv("syntax_learner/dep2fun.csv")[["function", "dependency", "dpos", "hpos"]]
+    fun_df = fun_df.fillna(np.nan).replace([np.nan], [None])
+
+    funs = {}
+    for num, row in fun_df.iterrows():
+        if row["dependency"]:
+            funs[row["function"]] = {"deprel": row["dependency"],
+                                        "dpos": row["dpos"],
+                                        "hpos": row["hpos"]}
+            
+
     for treebank_path in treebanks:
         subset = treebank_path.rsplit("-")[-1].replace(".conllu", "")
-        datasets = extract(treebank_path, lang, deep)
+        datasets = extract(treebank_path, lang, deep, funs)
         #with open(f"data/{treebank}_{subset}_rules.json", "w") as f:
         #    f.write(json.dumps(rules))
 

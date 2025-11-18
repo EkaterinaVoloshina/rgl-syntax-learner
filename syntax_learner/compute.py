@@ -8,8 +8,8 @@ import skglm
 import scipy
 import json
 from collections import defaultdict
-import bambi as bmb
 import arviz as az
+import pandas as pd
 from scipy.stats import chisquare
 
 
@@ -93,7 +93,6 @@ def format_tree_rules(rules, loader, feature=None):
                 if all_rules and prev_rule[-1][-1] == rule_label:
                     diff = list(set(prev_rule[:-1]) ^ set(d))
                     if (len(diff) == 2 and diff[0][:-1] == diff[1][:-1]) or len(diff) == 1:
-                        print(diff)
                         all_rules = all_rules[::-1]
                         d = list(set(d) - set(diff))
                         prev_rule = all_rules[-1]
@@ -222,11 +221,11 @@ def train_sparse_logreg(loader,
                 if n_pattern_positive_occurence / n_matched > int(y.sum()) / filtered_deps_len:
                     decision = 'yes'
                     coverage = (n_pattern_positive_occurence / n_yes) * 100
-                    presicion = (n_pattern_positive_occurence / n_matched) * 100
+                    presicion = (n_pattern_positive_occurence / n_matched) * 100 if n_matched > 0 else 0 
                 else:
                     decision = 'no'
                     coverage = (n_pattern_negative_occurence / (filtered_deps_len - n_yes)) * 100
-                    presicion = (n_pattern_negative_occurence / n_matched) * 100
+                    presicion = (n_pattern_negative_occurence / n_matched) * 100 if n_matched > 0 else 0 
 
                 ordered_rules.append({
                     "pattern": ",".join(sorted(name.split(","))),
@@ -280,19 +279,24 @@ def train_bayesian_model(data, binary=True):
 
 
 
-def compute(treebank, feat, model, deps=None):
-    lang = treebank.split("_")[1]
-   # paths = glob.glob(f"data/{treebank}_*_datasets.pkl")
-    paths = glob.glob(f"data/{treebank}_train_datasets.pkl")
-    loader = DataLoader(paths, feat, deps=deps) # TODO: fix more files
-    #print(loader.X_train)
-    if model == "tree": # based on AutoLEX paper
-        all_rules = format_tree_rules(train_tree(loader), loader)
-        rules = filter_rules(all_rules, loader)
-    elif model == "logreg": # based on GREX paper
-        rules = format_logreg_rules(train_sparse_logreg(loader))
+def compute(treebank, feat, model, deps=None, lang=None):
+    if isinstance(treebank, str):
+        lang = treebank.split("_")[1]
+    # paths = glob.glob(f"data/{treebank}_*_datasets.pkl")
+        paths = glob.glob(f"data/{treebank}_train_datasets.pkl")
+        loader = DataLoader(feat, deps=deps, paths=paths) # TODO: fix more files
     else:
-        raise AttributeError(f"Model {model} not implemented yet")
-    with open(f"data/{lang}_{feat}_{model}.json", "w") as outfile:
-        json.dump(rules, outfile)
-    print("Done!")
+        df = pd.DataFrame(treebank)
+        loader = DataLoader(feat, deps=deps, df=df)
+    #print(loader.X_train)
+    if loader.X_train != None:
+        if model == "tree": # based on AutoLEX paper
+            all_rules = format_tree_rules(train_tree(loader), loader)
+            rules = filter_rules(all_rules, loader)
+        elif model == "logreg": # based on GREX paper
+            rules = format_logreg_rules(train_sparse_logreg(loader))
+        else:
+            raise AttributeError(f"Model {model} not implemented yet")
+        with open(f"data/{lang}_{feat}_{model}.json", "w") as outfile:
+            json.dump(rules, outfile)
+   # print("Done!")
