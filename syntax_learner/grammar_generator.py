@@ -8,8 +8,10 @@ from tqdm.auto import tqdm
 import os
 import pandas as pd
 import numpy as np
-from syntax_learner.utils import getParams
-from syntax_learner.code_generation import generate_rule
+from syntax_learner.utils import getParams, fun2loc, get_record
+from syntax_learner.code_generation import generate_rule, generate_grammar
+
+FUNS = {"PositA": "a = a ! Pos"}
 
 class GrammarGenerator():
 	def __init__(self, model, data):
@@ -25,13 +27,19 @@ class GrammarGenerator():
 
 		self.dep2fun = self.__read_dep__("syntax_learner/dep2fun.csv")
 		self.inParams, self.params = getParams(self.treebank.split("-")[0])
+		self.params_values = get_record(self.treebank.split("-")[0], self.params)
 
 
 		self.types = self.__read_json__("test_generation/fun2type.json")
-
+		
 		self.pos = ['A', 'A2', 'CAdv', 'Conj', 'Dig', 'IQuant', 'Interj', 'N3', 'Numeral',
        'PN', 'Predet','Prep', 'Pron', 'Subj', 'V', 'V2', 'V2A', 'Num',
        'V2Q', 'V2S','V2V', 'V3', 'VA', 'VQ', 'VS','VV', 'N', 'N2', 'AdV']
+		
+		# FOR GRAMMAR GENERATION
+		self.grammar = defaultdict(list)
+		self.type2record = defaultdict(list)
+
 			
 
 	def __read_dep__(self, filename):
@@ -96,7 +104,6 @@ class GrammarGenerator():
 		dep2scores = {}
 		for rule_name in self.dep2fun:
 			if matches[rule_name]:
-				print(len(matches[rule_name]))
 				dep2scores[rule_name] = get_scores(rule_name, rules, matches)
 		
 		with open("subsets.pickle", "wb") as f:
@@ -126,7 +133,7 @@ class GrammarGenerator():
 			scores = {}
 			# rule_score[num] = (coverage, precision, fscore)
 			for rule, (coverage, precision, fscore) in rule_score.items():
-				print(rule)
+				#print(rule)
 				desc, n_rules, n_cond = get_rule_description(rule, rules)
 				weighted = get_weighted_results(coverage, precision, n_rules, n_cond)
 				scores[rule] = (coverage, precision, fscore, n_rules, n_cond, weighted, desc)
@@ -143,12 +150,54 @@ class GrammarGenerator():
 			#print(rule_res[0], "\n")
 			# Best by combination
 			if scores:
+				if rule_name == "PredVP":
+					print(sorted(scores.items(), key=lambda x: -x[1][5])[:5])
 				top_rules[rule_name] = sorted(scores.items(), key=lambda x: -x[1][2])[0]
 		
 		with open("top_rules.json", "w") as f:
 			json.dump(top_rules, f)
 
+	def get_next(self, typ):
+		next_fun = []
+		for fun, types in self.types.items():
+			in_types = all([x in typ for x in types[0]]) # check that we can produce all types of this function
+			if in_types:
+				next_fun.append(fun)
+		return next_fun
+	
+	def get_type(self, inp, out):
+		p = []
+		for num, i in enumerate(inp):
+			if i in self.pos:
 
+				record = self.params_values.get(i, [])
+				if num == len(inp) -1:
+					self.type2record[out] = record
+				#print(params.get(i, []))
+			else:
+				record = self.type2record.get(i,[])
+			p.append(record)
+			
+		return p
+	
+	def generate_functions(self, funs, top_rules):
+		for fun in funs: 
+			if fun in self.types: # and fun not in self.grammar:
+				inp, out = self.types[fun]
+				loc = fun2loc.get(fun, "Extra")
+				if fun in top_rules:
+					rule = top_rules[fun]
+					inp_params = self.get_type(inp, out)
+					rule_string = generate_rule(list(zip(rule[0],rule[1][6])), inp_params)
+					self.grammar[loc].append(rule_string) 
+				elif len(inp) == 1 and fun.startswith("Use"):
+					inp_params = self.get_type(inp, out)
+					rule_string = fun + " "+ inp[0].lower() + " = " + inp[0].lower()
+					self.grammar[loc].append(rule_string) 
+				elif fun in FUNS:
+					inp_params = self.get_type(inp, out)
+					self.grammar[loc].append(" ".join([fun, FUNS[fun]]))
+		
 
 	def generate_code(self):
 		"""
@@ -156,31 +205,32 @@ class GrammarGenerator():
 		"""
 		# TODO: change to the correct order
 		top_rules = self.__read_json__("top_rules.json")
-		grammar = ""
-		for fun, rule in top_rules.items(): 
-			if not fun.startswith("Use"):
-				inp, out = self.types[fun]
-				inp_params = get_type(inp, self.types, self.inParams, self.pos)
-				print(rule)
-				rule_string = generate_rule(list(zip(rule[0],rule[1][6])), inp_params)
-				grammar += rule_string + "\n\n"
-		with open(f"{self.treebank}_grammar.txt", "w") as f:
-			f.write(grammar)
+		
+		seen_functions = set()
+		
+		seen_types = set(self.pos)
+		seen_types |= set(self.params.keys())
+		
+		all_types = set([x[1] for x in self.types.values() if x[1] not in x[0]] + self.pos)
+		
+		fst_funs = self.get_next(seen_types)
+		self.generate_functions(fst_funs, top_rules)
+		
+		seen_functions |= set(fst_funs)
+		new_types = [self.types[f][1] for f in fst_funs]
+		seen_types |= set(new_types)
+        #while seen_types != all_types:
+		for i in range(5):
+			snd_funs = self.get_next(list(seen_types))
+			self.generate_functions(snd_funs, top_rules)
+			new_types = [self.types[f][1] for f in snd_funs]
+			seen_functions |= set(snd_funs)
+			seen_types = seen_types | set(new_types)
+		generate_grammar(self.grammar, "Kaz")
+		
+		
 
-def get_type(inp, types, params, pos):
-	p = []
-	for i in inp:
-		param = []
-		if i in pos:
-			param =params[i]
-		else:
-			for inp, out in types.values():
-				if i == out:
-					if len(inp) == 1 and inp[0] in pos:
-						param = params[inp[0]]
-						break
-		p.append(param)
-	return p
+
 
 """
 textfile = "rule\tcoverage\tprecision\tfscore\n"
