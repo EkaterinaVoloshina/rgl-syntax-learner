@@ -281,7 +281,7 @@ def train_bayesian_model(data, binary=True):
 
 def compute(treebank, feat, model, deps=None, lang=None):
     if isinstance(treebank, str):
-        lang = treebank.split("_")[1]
+        lang = treebank.split("_",1)[1].split("-")[0]
     # paths = glob.glob(f"data/{treebank}_*_datasets.pkl")
         paths = glob.glob(f"data/{treebank}_train_datasets.pkl")
         loader = DataLoader(feat, deps=deps, paths=paths) # TODO: fix more files

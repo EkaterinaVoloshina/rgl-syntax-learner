@@ -4,6 +4,7 @@ from collections import defaultdict
 lang2gf = {"Macedonian": "Mkd",
            "Albanian": "Sqi",
            "Kazakh" : "Kaz",
+           "Scottish_Gaelic": "Gla",
            "Russian": "Rus"}
 
 ud2gfPOS = {"NOUN": "N",

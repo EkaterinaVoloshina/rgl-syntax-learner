@@ -162,7 +162,7 @@ def extract(treebank_path: str, lang: str, deep: bool = False, funs=None):
     return dataDict
 
 def parse(treebank : str, deep : bool = False):
-    lang = treebank.split("_")[1]
+    lang = treebank.split("_",1)[1].split("-")[0]
     treebanks = glob.glob(f"{treebank}/*.conllu")
     fun_df = pd.read_csv("syntax_learner/dep2fun.csv")[["function", "dependency", "dpos", "hpos"]]
     fun_df = fun_df.fillna(np.nan).replace([np.nan], [None])

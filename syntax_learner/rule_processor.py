@@ -261,7 +261,7 @@ def get_matches(dep2fun, rules, data):
     results = defaultdict(dict)
     for fun, val in tqdm(dep2fun.items()): 
         results[fun] = {}
-        for feat_name, subrules in rules[fun].items(): 
+        for feat_name, subrules in rules.get(fun,{}).items():
             if fun in feat_name:
                 all_matches = []
                 correct = defaultdict(list)
@@ -341,7 +341,7 @@ def get_matches(dep2fun, rules, data):
 def get_scores(rule_name, rules, matches):
     feats = defaultdict(list)
     for f in rules[rule_name].keys():
-        if "_" in f and "wordOrder" not in f:
+        if f.startswith(rule_name+"_") and "wordOrder" not in f:
             feats[f.split("_")[-1]].append(f)
 
 

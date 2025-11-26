@@ -19,7 +19,7 @@ class GrammarGenerator():
 			path = f"data/SUD_{self.treebank}_train_datasets.pkl"
 		else: 
 			path = glob.glob(f"data/SUD_{self.treebank}_*_datasets.pkl")[0]
-		self.lang = self.treebank.split("_")[0]
+		self.lang = self.treebank.split("-")[0]
 		with open(path, 'rb') as f:
 			self.dataset = pickle.load(f)
 
@@ -67,7 +67,7 @@ class GrammarGenerator():
 		grammar_rules = defaultdict(dict) # rule -> all possible constraints
 		dep2fun = get_dep2fun()
 		for feature in tqdm(self.dataset):
-			p = f"data/{self.treebank}_{feature}_{self.model}.json"
+			p = f"data/{self.lang}_{feature}_{self.model}.json"
 			if os.path.exists(p):
 				rules = self.__read_json__(p)
 				if feature.count("_") > 1 or (feature.count("_") > 0 and feature.endswith("wordOrder")): # if trees are divided by function
@@ -159,6 +159,8 @@ class GrammarGenerator():
 		grammar = ""
 		for fun, rule in top_rules.items(): 
 			if not fun.startswith("Use"):
+				if fun not in self.types:
+					continue
 				inp, out = self.types[fun]
 				inp_params = get_type(inp, self.types, self.inParams, self.pos)
 				print(rule)
