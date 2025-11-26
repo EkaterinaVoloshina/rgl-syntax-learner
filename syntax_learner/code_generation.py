@@ -1,4 +1,6 @@
-from syntax_learner.utils import getParams
+from syntax_learner.utils import getParams, boilerplate
+import os
+
 
 def generate_negative_rule(rule, dep, head):
     for num, cond in rule:
@@ -13,11 +15,13 @@ def generate_rule(rule, params):
     rule_string = ""
     dep = ""
     head = ""
-    rule_string += " ".join(rule[0][1]["left-side"]) + " = {\ns = " # definition of the function
+    rule_string += " ".join(rule[0][1]["left-side"]) + " = {\n" # definition of the function
+    head_idx = rule[0][1]["left-side"].index("head") - 1
     if rule[0][1]["left-side"].index("head") == 2:
-        dep_name = rule[0][1]["left-side"][1]
+        dep_idx = 1
     else:
-        dep_name = rule[0][1]["left-side"][2]
+        dep_idx = 2
+    dep_name = rule[0][1]["left-side"][dep_idx]
     head_name = "head"
 
     dep += dep_name
@@ -42,14 +46,23 @@ def generate_rule(rule, params):
 
     optional = ""
     # first dep
+    if params and params[dep_idx-1] and params[dep_idx-1][1]:
+        param_list = params[dep_idx-1][1]
+        deps = sorted(deps, key=lambda item: (item[0] not in param_list, param_list.index(item[0]) if item[0] in param_list else 0))
     for name, cond in deps:
-        dep += " ! " + cond["right-side"][dep_name][name]
+        if cond["right-side"][dep_name][name] not in dep:
+                dep += " ! " + cond["right-side"][dep_name][name]
     
     # head
+    if params and params[head_idx] and params[head_idx][1]:
+        heads = sorted(heads, key=lambda item: (item[0] not in params[head_idx][1], params[head_idx][1].index(item[0]) if item[0] in params[head_idx][1] else 0))
     for name, cond in heads:
-        head += " ! " + cond["right-side"]["head"][name]
+        if cond["right-side"]["head"][name] not in head:
+            head += " ! " + cond["right-side"]["head"][name]
    
     # agr
+    if params and params[head_idx] and params[head_idx][1]:
+        agr = sorted(agr, key=lambda item: (item[0] not in params[head_idx][1], params[head_idx][1].index(item[0]) if item[0] in params[head_idx][1] else 0))
     for num, (name, cond) in enumerate(agr):
         if num == 0:
             rule_string += "\\\\"
@@ -67,17 +80,47 @@ def generate_rule(rule, params):
         else:
             dep += " ! "  + name.lower()
             head +=  " ! "  + name.lower() 
-        
-    
-    # word order
-    if wo and wo[0]["right-side"].index(dep_name) == 1: # assupmtion here
-        rule_string += head + " ++ " + dep
+
+    if params and params[head_idx]:
+            if params[head_idx][1]: # s exists
+                rule_string += "\ts = "
+                if wo and wo[0]["right-side"].index(dep_name) == 1: # assupmtion here
+                    rule_string += head + " ++ " + dep + ";\n"
+                else:
+                    rule_string += dep + " ++ " + head + ";\n"
+                for i in params[head_idx][-1]:
+                    optional += "\t" + i + " = head." + i + ";\n"
+                    
+            else:
+                for i in params[head_idx][-1]:
+                    if wo and wo[0]["right-side"].index(dep_name) == 1: # assupmtion here
+                        rule_string += "\t" + i + " = " + head + " ++ " + dep + ";\n"
+                    else:
+                        rule_string += "\t" + i + " = " + head + " ++ " + dep + ";\n"
     else:
-        rule_string += dep + " ++ " + head
+        # word order
+        rule_string += "\ts = "
+        if wo and wo[0]["right-side"].index(dep_name) == 1: # assupmtion here
+            rule_string += head + " ++ " + dep + ";\n"
+        else:
+            rule_string += dep + " ++ " + head + ";\n"
         
     if optional:
-        rule_string += ";\n" + optional[:-2]
-    rule_string += "\n}"
+        rule_string += optional[:-2]
+    rule_string = rule_string + "\n}"
 
     return rule_string
+
+def generate_grammar(grammar, lang):
+    if not os.path.exists(f"output/{lang.lower()}"):
+        os.makedirs(f"output/{lang.lower()}")
+    for name, funs in grammar.items():
+        text = f"concrete {name}{lang.title()} of {name} = " + boilerplate.get(name, "") + " {\n" 
+        text += "flags coding=utf8 ; optimize=all ;\n"
+        text += "lin\n\n" 
+        text += "\n\n".join(set(funs))
+        text += "\n}"
+        with open(f"output/{lang.lower()}/{name}{lang.title()}.gf", "w") as f:
+            f.write(text)
+
 
