@@ -16,6 +16,7 @@ import Text.JSON hiding (Result(..))
 import qualified Text.JSON as JSON
 import Data.Tree
 import Data.Char(toLower)
+import Data.List (sortOn)
 import Control.Monad
 import Control.Applicative hiding (Const)
 import qualified Data.Set as Set
@@ -90,7 +91,8 @@ ppATerm (Head feat) = pp "head." <> pp feat
 ppATerm (Dep  feat) = pp "dep."  <> pp feat
 ppATerm (Const val) = pp val
 
-type Node = (Int,String,String,[(String,String)],String)
+type POS  = String
+type Node = (Int,String,POS,[(String,String)],String)
 
 readCONLL :: FilePath -> IO [Tree Node]
 readCONLL fpath = do
@@ -142,22 +144,31 @@ main = do
 
   trees <- readCONLL "../SUD_Macedonian-MTB/mk_mtb-sud-test.conllu"
   mapM_ (putStrLn . drawTree . fmap (show . ppNode)) trees
-  mapM_ (putStrLn . show . ppEdge) [(n1,n2) | (n1@(_,_,pos1,_,_),n2@(_,_,pos2,_,rel)) <- concatMap edges trees, pos1=="NOUN", pos2=="ADJ", rel=="mod"]
 
   (cnc,gr) <- batchCompile noOptions Nothing args
   abs <- abstractOfConcrete gr cnc
   abs_ty <- lookupFunType gr abs (identS "AdjCN")
   cnc_ty <- linTypeOfType gr cnc abs_ty
+
+  let patterns = do  -- query edges matching AdjCN
+        t <- trees
+        (n1@(_,_,"NOUN",_,_),n2@(_,_,"ADJ",_,"mod")) <- edges t
+        return [n1,n2]
+
+  mapM_ (print . hsep . punctuate (pp ';') . map ppNode) patterns
+
+  -- we need to add genNum as a helper function in the environment 
   let q = (moduleNameS "ResMkd",identS "genNum")
   ty <- lookupResType gr q
-  ts <- runGenM (codeGen gr cnc (Config [1,2] rules trees) [(Q q,ty)] cnc_ty)
+
+  ts <- runGenM (codeGen gr cnc (Config [("ADJ",1),("NOUN",2)] rules patterns) [(Q q,ty)] cnc_ty)
   mapM_ (print . ppTerm Unqualified 0) ts
 
 data Config
    = Config {
-       order  :: [Int],
-       rules  :: Map.Map String [Rule],
-       corpus :: [Tree Node]
+       args     :: [(POS,Int)],
+       rules    :: Map.Map String [Rule],
+       patterns :: [[Node]]
      }
 
 codeGen :: SourceGrammar -> ModuleName -> Config -> [(Term,Type)] -> Type -> GenM Term
@@ -178,11 +189,19 @@ codeGen gr cnc cfg env ty0@(QC q) = with q $
   do (t,ty) <- anyOf env
      find env t ty ty0
 codeGen gr cnc cfg env ty0@(Sort s)
-  | s == cStr = do ts <- forM (order cfg) $ \i -> do
-                           let (t,ty) = reverse env !! i
-                           find env t ty ty0
-                   return (foldl1 C ts)
+  | s == cStr = do
+    let patts =
+          [(map snd . sortOn fst)
+             [(id,i) | (id,_,pos,_,_) <- patt
+                     , Just i <- [lookup pos (args cfg)]] | patt <- patterns cfg]
 
+        bestPatt = (fst . last . sortOn snd . Map.toList . Map.fromListWith (+))
+                       [(patt,1) | patt <- patts]
+
+    ts <- forM bestPatt $ \i -> do
+             let (t,ty) = reverse env !! i
+             find env t ty ty0
+    return (foldl1 C ts)
 find env t ty ty0
   | ty == ty0           = return t
 find env t (RecType fs) ty0 = do
