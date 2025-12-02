@@ -14,6 +14,7 @@ import System.Directory
 import System.Environment
 import Text.JSON hiding (Result(..))
 import qualified Text.JSON as JSON
+import Data.Tree
 import Data.Char(toLower)
 import Control.Monad
 import Control.Applicative hiding (Const)
@@ -77,13 +78,6 @@ readRules lang fpath = do
     toConsequent ["wordOrder"] ["rule",   "Yes"] = PostOrder
     toConsequent ["wordOrder"] ["rule",    "No"] = PreOrder
 
-    split sep []     = []
-    split sep (c:cs)
-      | c == sep  = [] : split sep cs
-      | otherwise = case split sep cs of
-                      []     -> [[c]]
-                      (x:xs) -> (c:x):xs
-
 ppRule (Rule []       consequent) = ppAtom consequent <> '.'
 ppRule (Rule premises consequent) = ppAtom consequent <+> pp ":-" <+> hsep (punctuate (pp ",") (map ppAtom premises)) <> '.'
 
@@ -96,6 +90,47 @@ ppATerm (Head feat) = pp "head." <> pp feat
 ppATerm (Dep  feat) = pp "dep."  <> pp feat
 ppATerm (Const val) = pp val
 
+type Node = (Int,String,String,[(String,String)],String)
+
+readCONLL :: FilePath -> IO [Tree Node]
+readCONLL fpath = do
+  ls <- fmap lines $ readFile fpath
+  return (map (toTree "0" (0,"root","",[],"")) (stanzas ls))
+  where
+    stanzas []           = []
+    stanzas (('#':_):ls) = stanzas ls
+    stanzas ([]:ls)      = [] : stanzas ls
+    stanzas (l:ls)       = case stanzas ls of
+                             []     -> [[split '\t' l]]
+                             (s:ss) -> (split '\t' l:s):ss
+
+    toTree id lbl stanza =
+      Node lbl [toTree (l!!0) (read(l!!0),l!!1,l!!3,toAttrs (l!!5),l!!7) stanza | l <- stanza, id==l!!6]
+
+    toAttrs "_" = []
+    toAttrs s   = map toAttr (split '|' s)
+      where
+        toAttr s =
+          case break (=='=') s of
+            (x,'=':y) -> (x,y)
+
+nodes (Node n1 children) =
+  n1 : concatMap nodes children
+
+edges (Node n1 children) =
+  [(n1,n2) | Node n2 _ <- children] ++
+  concatMap edges children
+
+ppNode (id,lemma,pos,morph,rel) = pp id <+> pp lemma <+> pp pos <+> pp (show morph) <+> pp rel
+
+ppEdge (n1,n2) = ppNode n1 <+> pp "->" <+> ppNode n2
+
+split sep []     = []
+split sep (c:cs)
+  | c == sep  = [] : split sep cs
+  | otherwise = case split sep cs of
+                  []     -> [[c]]
+                  (x:xs) -> (c:x):xs
 
 main = do
   let lang  = "Macedonian"
@@ -104,19 +139,25 @@ main = do
   writeFile (lang++"_rules.txt") $
     show (vcat (map (\(fun,rules) -> (fun <+> vcat (map ppRule rules))) (Map.toList rules)))
   args <- getArgs
+
+  trees <- readCONLL "../SUD_Macedonian-MTB/mk_mtb-sud-test.conllu"
+  mapM_ (putStrLn . drawTree . fmap (show . ppNode)) trees
+  mapM_ (putStrLn . show . ppEdge) [(n1,n2) | (n1@(_,_,pos1,_,_),n2@(_,_,pos2,_,rel)) <- concatMap edges trees, pos1=="NOUN", pos2=="ADJ", rel=="mod"]
+
   (cnc,gr) <- batchCompile noOptions Nothing args
   abs <- abstractOfConcrete gr cnc
   abs_ty <- lookupFunType gr abs (identS "AdjCN")
   cnc_ty <- linTypeOfType gr cnc abs_ty
   let q = (moduleNameS "ResMkd",identS "genNum")
   ty <- lookupResType gr q
-  ts <- runGenM (codeGen gr cnc (Config [1,2] rules) [(Q q,ty)] cnc_ty)
+  ts <- runGenM (codeGen gr cnc (Config [1,2] rules trees) [(Q q,ty)] cnc_ty)
   mapM_ (print . ppTerm Unqualified 0) ts
 
 data Config
    = Config {
-       order :: [Int],
-       rules :: Map.Map String [Rule]
+       order  :: [Int],
+       rules  :: Map.Map String [Rule],
+       corpus :: [Tree Node]
      }
 
 codeGen :: SourceGrammar -> ModuleName -> Config -> [(Term,Type)] -> Type -> GenM Term
