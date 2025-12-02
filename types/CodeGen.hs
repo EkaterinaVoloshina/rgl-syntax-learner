@@ -1,30 +1,120 @@
+import Prelude hiding ((<>))
 import GF.Infra.Ident
 import GF.Infra.Option
 import GF.Data.Operations
+import GF.Text.Pretty hiding (empty)
 import GF.Grammar.Lookup
 import GF.Grammar.Printer
 import GF.Grammar.Predef
-import GF.Grammar.Grammar
+import GF.Grammar.Grammar hiding (Rule(..))
 import GF.Grammar.Lockfield
 import GF.Compile
+import System.FilePath
+import System.Directory
 import System.Environment
+import Text.JSON hiding (Result(..))
+import qualified Text.JSON as JSON
 import Data.Char(toLower)
 import Control.Monad
-import Control.Applicative
+import Control.Applicative hiding (Const)
 import qualified Data.Set as Set
+import qualified Data.Map as Map
+
+
+data Rule = Rule [Atom] Atom deriving Show
+data Atom
+       = NotEqual ATerm ATerm
+       | Equal    ATerm ATerm
+       | PreOrder
+       | PostOrder
+       deriving Show
+type Value = String
+type Feature = String
+data ATerm
+       = Head Feature
+       | Dep  Feature
+       | Const Value
+       deriving Show
+
+readRules lang fpath = do
+  files <- getDirectoryContents fpath
+  fmap (Map.fromListWith (++) . concat) $ forM files $ \fname -> do
+     case split '_' (takeBaseName fname) of
+       [l,fun,x,feat,_] | l == lang -> do
+              s <- readFile (fpath</>fname)
+              case decode s of
+                JSON.Ok res    -> return [(fun,map (toRule [x,feat]) res)]
+                JSON.Error msg -> fail msg
+       [l,fun,"wordOrder",_] | l == lang -> do
+              s <- readFile (fpath</>fname)
+              case decode s of
+                JSON.Ok res    -> return [(fun,map (toRule ["wordOrder"]) res)]
+                JSON.Error msg -> fail msg
+       _ -> return []
+  where
+    toRule x xs = Rule (map toPremise (init xs)) (toConsequent x (last xs))
+
+    toPremise ["head","feats",feat,'!':value] = NotEqual (Head feat)  (Const value)
+    toPremise ["head","feats",feat,    value] = Equal    (Head feat)  (Const value)
+    toPremise ["head","pos",       '!':value] = Equal    (Head "pos") (Const value)
+    toPremise ["head","pos",           value] = Equal    (Head "pos") (Const value)
+    toPremise ["dep", "feats",feat,'!':value] = NotEqual (Dep  feat)  (Const value)
+    toPremise ["dep", "feats",feat,    value] = Equal    (Dep  feat)  (Const value)
+    toPremise ["dep","pos",        '!':value] = Equal    (Dep "pos")  (Const value)
+    toPremise ["dep","pos",            value] = Equal    (Dep "pos")  (Const value)
+    toPremise ["position", "!True"]           = PreOrder
+    toPremise ["position",  "True"]           = PostOrder
+    toPremise ["position", "False"]           = PreOrder
+    toPremise ["position", "!False"]          = PostOrder
+    toPremise s = error (show s)
+
+    toConsequent ["head",feat] ["rule", '!':val] = NotEqual (Head feat) (Const val)
+    toConsequent ["head",feat] ["rule",     val] = Equal (Head feat) (Const val)
+    toConsequent ["dep", feat] ["rule", '!':val] = NotEqual (Dep  feat) (Const val)
+    toConsequent ["dep", feat] ["rule",     val] = Equal (Dep  feat) (Const val)
+    toConsequent ["agr", feat] ["rule",   "Yes"] = Equal (Head feat) (Dep  feat)
+    toConsequent ["agr", feat] ["rule",    "No"] = NotEqual (Head feat) (Dep  feat)
+    toConsequent ["wordOrder"] ["rule",   "Yes"] = PostOrder
+    toConsequent ["wordOrder"] ["rule",    "No"] = PreOrder
+
+    split sep []     = []
+    split sep (c:cs)
+      | c == sep  = [] : split sep cs
+      | otherwise = case split sep cs of
+                      []     -> [[c]]
+                      (x:xs) -> (c:x):xs
+
+ppRule (Rule []       consequent) = ppAtom consequent <> '.'
+ppRule (Rule premises consequent) = ppAtom consequent <+> pp ":-" <+> hsep (punctuate (pp ",") (map ppAtom premises)) <> '.'
+
+ppAtom (NotEqual t1 t2) = pp "ne" <> parens (ppATerm t1 <> pp ',' <+> ppATerm t2)
+ppAtom (Equal    t1 t2) = pp "eq" <> parens (ppATerm t1 <> pp ',' <+> ppATerm t2)
+ppAtom PreOrder         = pp "preOrder"
+ppAtom PostOrder        = pp "postOrder"
+
+ppATerm (Head feat) = pp "head." <> pp feat
+ppATerm (Dep  feat) = pp "dep."  <> pp feat
+ppATerm (Const val) = pp val
+
 
 main = do
+  let lang  = "Macedonian"
+      fpath = "../data/"
+  rules <- readRules lang fpath
+  writeFile (lang++"_rules.txt") $
+    show (vcat (map (\(fun,rules) -> (fun <+> vcat (map ppRule rules))) (Map.toList rules)))
   args <- getArgs
   (cnc,gr) <- batchCompile noOptions Nothing args
   abs <- abstractOfConcrete gr cnc
   abs_ty <- lookupFunType gr abs (identS "AdjCN")
   cnc_ty <- linTypeOfType gr cnc abs_ty
-  ts <- runGenM (codeGen gr cnc (Config [0,1]) [] cnc_ty)
+  ts <- runGenM (codeGen gr cnc (Config [0,1] rules) [] cnc_ty)
   mapM_ (print . ppTerm Unqualified 0) ts
 
 data Config
    = Config {
-       order :: [Int]
+       order :: [Int],
+       rules :: Map.Map String [Rule]
      }
 
 codeGen :: SourceGrammar -> ModuleName -> Config -> [(Ident,Type)] -> Type -> GenM Term
