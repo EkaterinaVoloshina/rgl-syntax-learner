@@ -108,7 +108,9 @@ main = do
   abs <- abstractOfConcrete gr cnc
   abs_ty <- lookupFunType gr abs (identS "AdjCN")
   cnc_ty <- linTypeOfType gr cnc abs_ty
-  ts <- runGenM (codeGen gr cnc (Config [0,1] rules) [] cnc_ty)
+  let q = (moduleNameS "ResMkd",identS "genNum")
+  ty <- lookupResType gr q
+  ts <- runGenM (codeGen gr cnc (Config [1,2] rules) [(Q q,ty)] cnc_ty)
   mapM_ (print . ppTerm Unqualified 0) ts
 
 data Config
@@ -117,10 +119,10 @@ data Config
        rules :: Map.Map String [Rule]
      }
 
-codeGen :: SourceGrammar -> ModuleName -> Config -> [(Ident,Type)] -> Type -> GenM Term
+codeGen :: SourceGrammar -> ModuleName -> Config -> [(Term,Type)] -> Type -> GenM Term
 codeGen gr cnc cfg env (Prod bt _ arg res) = do
   let x = freshVar env arg
-  t <- codeGen gr cnc cfg ((x,arg):env) res
+  t <- codeGen gr cnc cfg ((Vr x,arg):env) res
   return (Abs bt x t)
 codeGen gr cnc cfg env (RecType fs) = do
   fs <- forM fs $ \(lbl,ty) -> do
@@ -129,15 +131,15 @@ codeGen gr cnc cfg env (RecType fs) = do
   return (R fs)
 codeGen gr cnc cfg env (Table arg res) = do
   let x = freshVar env arg
-  t <- codeGen gr cnc cfg ((x,arg):env) res
+  t <- codeGen gr cnc cfg ((Vr x,arg):env) res
   return (T TRaw [(PV x,t)])
-codeGen gr cnc cfg env ty0@(QC q) = with q $ do
-  (x,ty) <- anyOf env
-  find env (Vr x) ty ty0
+codeGen gr cnc cfg env ty0@(QC q) = with q $
+  do (t,ty) <- anyOf env
+     find env t ty ty0
 codeGen gr cnc cfg env ty0@(Sort s)
   | s == cStr = do ts <- forM (order cfg) $ \i -> do
-                           let (x,ty) = reverse env !! i
-                           find env (Vr x) ty ty0
+                           let (t,ty) = reverse env !! i
+                           find env t ty ty0
                    return (foldl1 C ts)
 
 find env t ty ty0
@@ -147,9 +149,14 @@ find env t (RecType fs) ty0 = do
   find env (P t l) ty ty0
 find env t (Table arg@(QC q) res) ty0 = do
   p <- with q $ do
-         (x,ty) <- anyOf env
-         find env (Vr x) ty arg
+         (t,ty) <- anyOf env
+         find env t ty arg
   find env (S t p) res ty0
+find env t (Prod bt _ arg@(QC q) res) ty0 = do
+  p <- with q $ do
+         (t,ty) <- anyOf env
+         find env t ty arg
+  find env (App t p) res ty0
 find env t ty _ = empty
 
 
@@ -177,7 +184,7 @@ freshVar env ty = fresh (letter ty) 1
     fresh c i =
       let v | i == 1    = identS c
             | otherwise = identS (c++show i)
-      in case [x | (x,_) <- env, x == v] of
+      in case [x | (Vr x,_) <- env, x == v] of
            [] -> v
            _  -> fresh c (i+1)
 
