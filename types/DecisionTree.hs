@@ -23,20 +23,25 @@ data Attribute n a = forall r . (Show r,Ord r) => A {
        aValues :: [r]                   -- ^ list of possible values
      }
 
--- | Build a DecisionTree from the given training set
-build :: (Ord a, Ord b) => [Attribute n a] -> [(a,b)] -> DecisionTree n a b
+-- | Build a DecisionTree from the given training set. The number in the result is the accuracy.
+build :: (Ord a, Ord b) => [Attribute n a] -> [(a,b)] -> (Double,DecisionTree n a b)
 build atts dataset =
-  case bestAttribute dataset atts of
-    (0,  _         ) -> let cs            = counts (map snd dataset)
-                            dominantLabel = fst $ Map.findMax $ cs -- in case we are done, get the label
-                        in Leaf dominantLabel (entropy cs)
-    (inf,P n proj p) -> let children = Map.map (build atts) p -- recursivly build the children
-                        in Node {
-                             attr  = n,
-                             proj  = proj,
-                             values= Map.keys children,
-                             child = \a -> fromJust $ Map.lookup a children
-                           }
+  let (count,t) = build 0 dataset
+  in (fromIntegral count/fromIntegral (length dataset),t)
+  where
+    build count dataset =
+      case bestAttribute dataset atts of
+        (0,  _         ) -> let cs = counts (map snd dataset)
+                                (dominantLabel,matching) = Map.findMax cs
+                            in (count+matching,Leaf dominantLabel (entropy cs))
+        (inf,P n proj p) -> let (count',children) = mapAccumL build count p -- recursivly build the children
+                            in (count'
+                               ,Node {
+                                  attr  = n,
+                                  proj  = proj,
+                                  values= Map.keys children,
+                                  child = \a -> fromJust $ Map.lookup a children
+                                })
 
 -- | Predicts the result for a given input
 predict :: DecisionTree n a b -> a -> b
