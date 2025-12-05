@@ -21,7 +21,8 @@ import Control.Monad
 import Control.Applicative hiding (Const)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
-
+import DecisionTree hiding (Node)
+import Debug.Trace
 
 data Rule = Rule [Atom] Atom deriving Show
 data Atom
@@ -150,7 +151,13 @@ main = do
   abs_ty <- lookupFunType gr abs (identS "AdjCN")
   cnc_ty <- linTypeOfType gr cnc abs_ty
 
-  let patterns = do  -- query edges matching AdjCN
+  let params = Map.fromListWith (++) $ do
+        t <- trees
+        (_,_,_,morph,_) <- nodes t
+        (ty,v) <- morph
+        return (ty,[v])
+
+      patterns = do  -- query edges matching AdjCN
         t <- trees
         (n1@(_,_,"NOUN",_,_),n2@(_,_,"ADJ",_,"mod")) <- edges t
         return [n1,n2]
@@ -190,18 +197,45 @@ codeGen gr cnc cfg env ty0@(QC q) = with q $
      find env t ty ty0
 codeGen gr cnc cfg env ty0@(Sort s)
   | s == cStr = do
-    let patts =
-          [(map snd . sortOn fst)
-             [(id,i) | (id,_,pos,_,_) <- patt
-                     , Just i <- [lookup pos (args cfg)]] | patt <- patterns cfg]
+    ((t,num_param,num_inh),constrs) <-
+         group (Meta 0,0,0) $ do
+           patt <- anyOf (patterns cfg)
 
-        bestPatt = (fst . last . sortOn snd . Map.toList . Map.fromListWith (+))
-                       [(patt,1) | patt <- patts]
+           inh <- runGenM $ do
+                    (pos,i) <- anyOf (args cfg)
+                    let morpho = head [morpho | (_,_,pos',morpho,_) <- patt, pos==pos']
+                    let (t,ty) = reverse env !! i
+                    findInh gr morpho t ty
 
-    ts <- forM bestPatt $ \i -> do
-             let (t,ty) = reverse env !! i
-             find env t ty ty0
-    return (foldl1 C ts)
+           (str,vs) <- buildStr [] (sortOn (\(id,_,_,_,_)->id) patt) $ \vs (_,_,pos,morpho,_) ->
+               case lookup pos (args cfg) of
+                 Just i  -> do let (t,ty) = reverse env !! i
+                               findStr gr morpho vs t ty
+                 Nothing -> fail ("Missing "++pos++" argument")
+
+           return ((str,length vs,length inh),(vs,inh))
+    trace (show (pp t)) $ return ()
+
+    attrs <- forM (zip [0..] (snd (head constrs))) $ \(i,(_,_,ty)) -> do
+               ts <- allParamValues gr ty
+               return (A (show (pp ty)) (!!i) ts)
+
+    forM constrs $ \(vs,inh) -> do
+      trace (show ((hsep . map (ppTerm Unqualified 9 . fst) . reverse) vs <+> pp '|' <+> hsep (map (\(c,d,_) -> pp c <> pp '=' <> pp d) inh))) $ return ()
+
+    forM [0..num_param-1] $ \i -> do
+      let (accuracy,dt) = build attrs [(map (\(_,v,_) -> v) inh,fst (vs !! i)) | (vs,inh) <- constrs]
+      trace (show accuracy++"\n"++drawDecisionTree dt) $ return ()
+
+    return t
+  where
+    buildStr s []     f = return (Empty,s)
+    buildStr s [x]    f = f s x
+    buildStr s (x:xs) f = do (t1,s) <- f s x
+                             (t2,s) <- buildStr s xs f
+                             return (C t1 t2,s)
+
+
 find env t ty ty0
   | ty == ty0           = return t
 find env t (RecType fs) ty0 = do
@@ -219,6 +253,57 @@ find env t (Prod bt _ arg@(QC q) res) ty0 = do
   find env (App t p) res ty0
 find env t ty _ = empty
 
+mapping =
+  [ (identS "count_form", ("Number","Count"))
+  , (identS "vocative",   ("Case","Voc"))
+  , (identS "adverb",     ("Adverb","Yes"))
+  , (identS "Sg",         ("Number","Sing"))
+  , (identS "Pl",         ("Number","Plur"))
+  , (identS "GSg",        ("Number","Sing"))
+  , (identS "GPl",        ("Number","Plur"))
+  , (identS "Masc",       ("Gender","Masc"))
+  , (identS "Fem",        ("Gender","Fem"))
+  , (identS "Neuter",     ("Gender","Neut"))
+  , (identS "Indef",      ("Definite","Ind"))
+  , (identS "Def",        ("Definite","Def"))
+  , (identS "Proximal",   ("Distance","Proximal"))
+  , (identS "Distal",     ("Distance","Distal"))
+  ]
+
+findStr gr morpho vs t (Sort s)
+  | s == cStr                  = return (t,vs)
+findStr gr morpho vs t (RecType fs) = do
+  (l@(LIdent id),ty) <- anyOf fs
+  morpho <- case lookup (identC id) mapping of
+              Just v  -> pop v morpho
+              Nothing -> return morpho
+  findStr gr morpho vs (P t l) ty
+findStr gr morpho vs t (Table arg res) = do
+  v <- findParam gr morpho arg
+  let p = Meta (length vs+1)
+  findStr gr morpho ((v,arg):vs) (S t p) res
+findStr gr morpho vs t ty = empty
+
+findParam gr morpho (QC q) = do
+  (mn,info) <- lookupOrigInfo gr q
+  (id,ctxt) <- case info of
+                 ResParam (Just (L _ ps)) _ -> anyOf ps
+                 _                          -> raise $ render (ppQIdent Qualified q <+> "has no parameter values defined")
+  morpho <- case lookup id mapping of
+              Just v  -> pop v morpho
+              Nothing -> return morpho
+  foldM (\t (_,_,ty) -> fmap (App t) (findParam gr morpho ty)) (QC (mn,id)) ctxt
+
+findInh gr morpho t ty@(QC q) = do
+  v <- findParam gr morpho ty
+  return (t,v,ty)
+findInh gr morpho t (RecType fs) = do
+  (l@(LIdent id),ty) <- anyOf fs
+  morpho <- case lookup (identC id) mapping of
+              Just v  -> pop v morpho
+              Nothing -> return morpho
+  findInh gr morpho (P t l) ty
+findInh gr morpho t ty = empty
 
 linTypeOfType :: ErrorMonad m => Grammar -> ModuleName -> Type -> m Type
 linTypeOfType gr cnc (Prod bt x arg res) = do
@@ -282,6 +367,14 @@ runGenM (GenM g) =
     Ok xs   -> return xs
     Bad msg -> raise msg
 
+group :: Ord a => a -> GenM (a,b) -> GenM (a,[b])
+group def (GenM g) =
+  case g Set.empty (\(x,y) m -> Ok (Map.insertWith (++) x [y] m)) Map.empty of
+    Ok m
+      | Map.null m -> return (def,[])
+      | otherwise  -> anyOf (Map.toList m)
+    Bad msg        -> fail msg
+
 anyOf xs = GenM (choose xs)
   where
     choose []     s k r = Ok r
@@ -289,7 +382,14 @@ anyOf xs = GenM (choose xs)
                             Ok r    -> choose xs s k r
                             Bad msg -> Bad msg
 
+pop x  []     = empty
+pop x0 (x:xs)
+  | x0 == x   = return xs
+  | otherwise = do xs <- pop x0 xs
+                   return (x:xs)
+
 with q (GenM g) =
   GenM (\s k r -> if Set.member q s
                     then Ok r
                     else g (Set.insert q s) k r)
+
