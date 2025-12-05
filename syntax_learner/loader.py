@@ -18,11 +18,12 @@ class DataLoader:
         self.feature = feature
         self.deps = deps
         if paths:
+
             self.df = self.read_data(paths[0])
         else:
             self.df = df
-        
 
+        
         if len(paths) == 3:
             train, dev, test = None, None, None
             for path in paths:
@@ -32,7 +33,7 @@ class DataLoader:
                     dev = path
                 elif "test" in path:
                     test = path 
-            self.X_train, self.y_train = self.transform(self.read_data(train))
+            self.X, self.y = self.transform(self.read_data(train))
            # self.X_dev, self.y_dev = self.transform(self.read_data(dev)) # TODO: should be just transform
            # self.X_test, self.y_test = self.transform(self.read_data(test)) # TODO: should be just tranform
         else:
@@ -40,13 +41,10 @@ class DataLoader:
            # for path in paths:
            #     dfs.append(self.read_data(path))
           #  df = pd.concat(dfs)
-            X, y = self.transform(df)
+            self.X, self.y = self.transform(self.df)
            # X_train_dev, self.X_test, y_train_dev, self.y_test = train_test_split(X, y)
            # self.X_train, self.X_dev, self.y_train, self.y_dev = train_test_split(X_train_dev, y_train_dev)
-            if X.shape[0] * 0.75 > 3:
-                self.X_train, self.X_test, self.y_train, self.y_test = train_test_split(X, y)
-            else:
-                self.X_train, self.X_test, self.y_train, self.y_test = None, None, None, None
+            
 
     def read_data(self, path):
         with open(path, 'rb') as f:
@@ -55,7 +53,7 @@ class DataLoader:
             df = pd.DataFrame(data[self.feature])
         else:
             raise AttributeError(f"{self.feature} is not in the list of features")
-        if self.feature.startswith("agr") or self.feature.startswith("dep") or self.feature.startswith("head"):
+        if self.feature.startswith("agr") or self.feature.startswith("dep_") or self.feature.startswith("head"):
             _, feat = self.feature.split("_", maxsplit=1)
         
         if self.deps:
@@ -74,8 +72,9 @@ class DataLoader:
             all_dep = sum(dep.values())
             all_head = sum(head.values())
             for val, freq in dep.items():
-                p["Yes"] += (freq/all_dep) * (head[val]/all_head)
-                p["No"] += (freq/all_dep) * ((all_head - head[val])/all_head)
+
+                p["Yes"] += (freq/all_dep) * (head.get(val,0)/all_head)
+                p["No"] += (freq/all_dep) * ((all_head - head.get(val,0))/all_head)
         elif self.feature.startswith("dep"):
             _, feat2 = self.feature.split("_")
             dep = self.df[f"{feat2}_dep"].value_counts().to_dict()
@@ -103,18 +102,21 @@ class DataLoader:
         return p
 
     def transform(self, df):
-        if "agr" in self.feature or "head" in self.feature or "dep" in self.feature:
+        if "agr" in self.feature or "head" in self.feature or "dep_" in self.feature:
             feat = self.feature.split("_")[-1]
-            if f"{feat}_head" in df.columns:
+            if ("head_" in self.feature or "agr" in self.feature) and f"{feat}_head" in df.columns:
                 df = df.drop([f"{feat}_head"], axis=1)
-            if f"{feat}_dep" in df.columns:
+            if ("dep_" in self.feature or "agr" in self.feature) and f"{feat}_dep" in df.columns:
                 df = df.drop(f"{feat}_dep", axis=1)
         elif self.feature.endswith("Order"):
             df = df.drop(["position"], axis=1)
+        elif self.feature == "deprel":
+            df = df.drop(["deprel"], axis=1)
         else:
             print(f"Unknown feature: {self.feature}")
         X = []
         encoder = LabelEncoder()
+
         y = encoder.fit_transform(df["target"].array)
         self.labels = encoder.classes_
         df = df.drop(["target", "sent_id"], axis=1)
