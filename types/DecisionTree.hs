@@ -4,32 +4,41 @@ module DecisionTree (build, predict, predict', drawDecisionTree,
 
 import Data.Maybe (fromJust)
 import Data.List hiding (partition)
-import Data.Function (on)
 import qualified Data.Map as Map
 
 -- | The type for a DecisionTree
 data DecisionTree n a b
-  = NonLeaf       -- ^ No way to decide
-  | Leaf b Double -- ^ Leafs have labels and entropy
+  = Leaf b Double -- ^ Leafs have labels and entropy
   | forall r . Ord r => Decision {
       name     :: n r,                           -- ^ the name of the attribute that this node asks for
       proj     :: a -> r,                        -- ^ projection which computes the value of the attribute
       children :: Map.Map r (DecisionTree n a b) -- ^ and has children which can be found with a value of the attribute
     }
+  | forall r . (Show r,Ord r) => DecisionC {
+      name     :: n r,                           -- ^ the name of the attribute that this node asks for
+      proj     :: a -> r,                        -- ^ projection which computes the value of the attribute
+      key      :: r,                             -- ^ split threshold
+      left     :: DecisionTree n a b,            -- ^ children with value smaller or equal to the threshold
+      right    :: DecisionTree n a b             -- ^ children with value grater than the threshold
+    }
 
-data Attribute n a = forall r . Ord r => A {
+data Attribute n a
+  = forall r . Ord r => A {             -- ^ A categorial attribute
        aName   :: n r,                  -- ^ the attributes name, used for visualization in drawDecisionTree
-       aProj   :: a -> r,               -- ^ a projection which extracts the value of the attribute from the input
-       aValues :: [r]                   -- ^ list of possible values
-     }
+       aProj   :: a -> r                -- ^ a projection which extracts the value of the attribute from the input
+    }
+  | forall r . (Show r,Ord r) => AC {   -- ^ A continuous attribute
+       aName   :: n r,
+       aProj   :: a -> r
+    }
 
 -- | Build a DecisionTree from the given training set. The number in the result is the accuracy.
 build :: Ord b => [Attribute n a] -> [(a,b)] -> (Double,DecisionTree n a b)
+build atts []      = error "Cannot learn without data"
 build atts dataset =
   let (count,t) = build 0 dataset
   in (fromIntegral count/fromIntegral (length dataset),t)
   where
-    build count []      = (count,NonLeaf)
     build count dataset =
       case bestAttribute dataset atts of
         (0,  _         ) -> let cs = counts (map snd dataset)
@@ -42,6 +51,17 @@ build atts dataset =
                                   proj     = proj,
                                   children = children
                                 })
+        (inf,PC n proj k l r)
+                         -> let (count1,left)  = build count  l -- recursivly build the children
+                                (count2,right) = build count1 r -- recursivly build the children
+                            in (count2
+                               ,DecisionC {
+                                  name = n,
+                                  proj = proj,
+                                  key  = k,
+                                  left = left,
+                                  right= right
+                                })
 
 -- | Predicts the result for a given input
 predict :: DecisionTree n a b -> a -> Maybe b
@@ -49,14 +69,15 @@ predict t a = fmap fst (predict' t a)
 
 -- | Predicts the result for a given input
 predict' :: DecisionTree n a b -> a -> Maybe (b,Double)
-predict' NonLeaf                    _ = Nothing       -- we can't decide
 predict' (Leaf b e)                 _ = Just    (b,e) -- we reached a Leaf, done
-predict' (Decision n proj children) d = Map.lookup (proj d) children >>= \dt -> predict' dt d
+predict' (Decision  n proj children) d = Map.lookup (proj d) children >>= \dt -> predict' dt d
+predict' (DecisionC n proj k l r)    d
+  | proj d <= k = predict' l d
+  | otherwise   = predict' r d
 
 drawDecisionTree :: (forall r . n r -> String) -> (forall r . n r -> r -> String) -> (b -> String) -> DecisionTree n a b -> String
 drawDecisionTree showName showValue showResult = unlines . draw
   where
-    draw NonLeaf                    = [""]
     draw (Leaf v e)                 = lines (showResult v ++ " " ++ show e)
     draw (Decision n proj children) = lines (showName n) ++ drawSubTrees (Map.toList children)
       where
@@ -65,19 +86,18 @@ drawDecisionTree showName showValue showResult = unlines . draw
             "|" : shift ("`- "++showValue n k++" ") "   " (draw v)
         drawSubTrees ((k,v):xs) =
             "|" : shift ("+- "++showValue n k++" ") "|  " (draw v) ++ drawSubTrees xs
+    draw (DecisionC n proj k l r)   = lines (showName n) ++ drawSubTrees k l r
+      where
+        drawSubTrees k l r =
+            "|" : shift ("+- <="++showValue n k++" ") "|  " (draw l) ++
+            "|" : shift ("`- > "++showValue n k++" ") "   " (draw r)
 
-        shift first other = zipWith (++) (first : repeat other)
+    shift first other = zipWith (++) (first : repeat other)
 
-data Partition n a b = forall r . Ord r => P (n r) (a -> r) (Map.Map r [(a,b)])
+data Partition n a b
+  = forall r . Ord r => P  (n r) (a -> r) (Map.Map r [(a,b)])
+  | forall r . (Show r,Ord r) => PC (n r) (a -> r) r [(a,b)] [(a,b)]
 
--- | Partitions the dataset according to the possible values of the attribute.
--- If a particular value never appears in the dataset, then we get an empty
--- list for that value.
-partition :: [(a,b)] -> Attribute n a -> Partition n a b
-partition dataset (A n project possibleValues) =
-  P n project (foldl (\m k -> Map.insertWith (++) k [] m) grouped possibleValues)
-  where
-    grouped = groupWith (project.fst) (:[]) (++) dataset
 
 -- | Computes the entropy of a Dataset
 --
@@ -99,22 +119,35 @@ counts = groupWith id (const (1::Int)) (const succ)
 -- It is defined as 
 --
 -- entropy(set) - sum p_i * entropy {dat_i | dat has value i for attribute a}
-information :: Ord b =>  [(a,b)]         -- ^ the data
-            -> Attribute n a             -- ^ the attribute
-            -> (Double,Partition n a b)  -- ^ the information and the partition
-information dataset attr = (inf,p)
+partition :: Ord b =>  [(a,b)]         -- ^ the data
+          -> Attribute n a             -- ^ the attribute
+          -> (Double,Partition n a b)  -- ^ the information and the partition
+partition dataset attr =
+  case attr of
+    A  n project -> let p   = groupWith (project.fst) (:[]) (++) dataset
+                        inf = total_ent - sum (map split_ent (Map.elems p))
+                    in (inf,P n project p)
+    AC n project -> let p   = groupWith (project.fst) (:[]) (++) dataset
+                        ps  = split [] (Map.toList p)
+
+                        split xs []            = []
+                        split xs ((k,ys):rest) =
+                          let pre  = ys++xs
+                              post = concatMap snd rest
+                          in PC n project k pre post : split pre rest
+
+                    in (head.sortOn negatedInf) [(total_ent - (split_ent xs + split_ent ys),p) | p@(PC _ _ k xs ys) <- ps]
   where
-    p   = partition dataset attr
-    ps  = case p of
-            P _ _ m -> map (map snd) $ Map.elems m  -- the partitions, we're only interested in the labels
-    inf = entropy (counts (map snd dataset)) - sum (map (\p -> (fromIntegral (length p) / n) * entropy (counts p)) ps)
-    n   = fromIntegral $ length dataset
+    size = fromIntegral $ length dataset
+
+    total_ent    = entropy (counts (map snd dataset))
+    split_ent xs = (fromIntegral (length xs) / size) * entropy (counts (map snd xs))
 
 -- | Return the attribute which gives us greatest gain in information
 bestAttribute :: Ord b => [(a,b)] -> [Attribute n a] -> (Double,Partition n a b)
-bestAttribute dataset = head.sortBy (compare `on` negatedInf) . map (\x -> information dataset x)
-  where
-    negatedInf (inf,_) = -inf
+bestAttribute dataset = head.sortOn negatedInf . map (\x -> partition dataset x)
+
+negatedInf (inf,_) = -inf
 
 groupWith :: Ord k
           => (a -> k)      -- ^ how to extract a key
@@ -122,5 +155,5 @@ groupWith :: Ord k
           -> (v -> v -> v) -- ^ how to fuse two values
           -> [a]           -- ^ the list we want to group
           -> Map.Map k v 
-groupWith getKey singleton fuse = 
+groupWith getKey singleton fuse =
     foldl (\m x -> Map.insertWith fuse (getKey x) (singleton x) m) Map.empty
