@@ -9,7 +9,8 @@ import qualified Data.Map as Map
 
 -- | The type for our DecisionTree
 data DecisionTree n a b
-  = Leaf b Double -- ^ Leafs have labels and entropy
+  = NonLeaf       -- ^ No way to decide
+  | Leaf b Double -- ^ Leafs have labels and entropy
   | forall r . (Show r,Ord r) => Node {
       attr   :: n,                      -- ^ the name of the attribute that this node asks for
       proj   :: a -> r,                 -- ^ projection which computes the value of the attribute
@@ -29,6 +30,7 @@ build atts dataset =
   let (count,t) = build 0 dataset
   in (fromIntegral count/fromIntegral (length dataset),t)
   where
+    build count []      = (count,NonLeaf)
     build count dataset =
       case bestAttribute dataset atts of
         (0,  _         ) -> let cs = counts (map snd dataset)
@@ -44,17 +46,19 @@ build atts dataset =
                                 })
 
 -- | Predicts the result for a given input
-predict :: DecisionTree n a b -> a -> b
-predict t a = fst (predict' t a)
+predict :: DecisionTree n a b -> a -> Maybe b
+predict t a = fmap fst (predict' t a)
 
 -- | Predicts the result for a given input
-predict' :: DecisionTree n a b -> a -> (b,Double)
-predict' (Leaf b e)            _ = (b,e) -- we reached a Leaf, done
+predict' :: DecisionTree n a b -> a -> Maybe (b,Double)
+predict' NonLeaf               _ = Nothing       -- we can't decide
+predict' (Leaf b e)            _ = Just    (b,e) -- we reached a Leaf, done
 predict' (Node n proj _ child) d = predict' (child (proj d)) d
 
 drawDecisionTree :: (Show n,Show a,Show b) => DecisionTree n a b -> String
 drawDecisionTree  = unlines . draw
   where
+    draw NonLeaf                    = [""]
     draw (Leaf v e)                 = lines (show v ++ " " ++ show e)
     draw (Node n proj values child) = lines (show n) ++ drawSubTrees values
       where
