@@ -10,18 +10,25 @@ import pandas as pd
 import numpy as np
 from syntax_learner.utils import getParams, fun2loc, get_record
 from syntax_learner.code_generation import generate_rule, generate_grammar
+from submodlib.functions.graphCut import GraphCutFunction #, SetCover
+from scipy.stats import chisquare, fisher_exact, wilcoxon
 
-FUNS = {"PositA": "a = a ! Pos"}
+
 
 class GrammarGenerator():
-	def __init__(self, model, data):
+	def __init__(self, model : str, data : str, funs : bool =True):
+		"""
+		model : the name of the model, i.e. "tree" for Decision Tree or 
+		
+		"""
 		self.model = model 
 		self.treebank = data
+		self.funs = funs
 		if os.path.exists("data/SUD_{self.treebank}_train_datasets.pkl"):
 			path = f"data/SUD_{self.treebank}_train_datasets.pkl"
 		else: 
 			path = glob.glob(f"data/SUD_{self.treebank}_*_datasets.pkl")[0]
-		self.lang = self.treebank.split("-")[0]
+		self.lang = self.treebank.split("_")[0]
 		with open(path, 'rb') as f:
 			self.dataset = pickle.load(f)
 
@@ -35,6 +42,8 @@ class GrammarGenerator():
 		self.pos = ['A', 'A2', 'CAdv', 'Conj', 'Dig', 'IQuant', 'Interj', 'N3', 'Numeral',
        'PN', 'Predet','Prep', 'Pron', 'Subj', 'V', 'V2', 'V2A', 'Num',
        'V2Q', 'V2S','V2V', 'V3', 'VA', 'VQ', 'VS','VV', 'N', 'N2', 'AdV']
+		
+		self.predifined = ["Ant", "Pol", "Tense"]
 		
 		# FOR GRAMMAR GENERATION
 		self.grammar = defaultdict(list)
@@ -64,8 +73,62 @@ class GrammarGenerator():
 		Extracts rules with a chosen model
 		"""
 		for feature, data in tqdm(self.dataset.items()): # TODO: fix features 
-			if feature != "subj_exists":
+			if data and feature != "subj_exists":
 				compute(data, feature, self.model, deps=None, lang=self.lang)
+
+	def calculate_significance(self):
+
+		feature_distribution = defaultdict(dict)
+		distribution_by_function = defaultdict(dict)
+		for i, examples in self.dataset.items():
+				if "_" in i:
+						fun, feat = i.split("_", maxsplit=1)
+						if "dep_" or "head_" in feat:
+								feat_name = feat.split("_")[-1]
+						else: feat_name = feat
+						for rule in examples:
+								target = rule["target"]
+								if "sent_id" in rule:
+										if target in feature_distribution[feat_name]:
+												feature_distribution[feat_name][target].append(rule["sent_id"])
+										else:
+												feature_distribution[feat_name][target] = [rule["sent_id"],]
+										if target in distribution_by_function[feat]:
+												if fun in distribution_by_function[feat][target]:
+														distribution_by_function[feat][target][fun].append(rule["sent_id"])
+												else:
+														distribution_by_function[feat][target][fun] = [rule["sent_id"],]
+										else:
+												distribution_by_function[feat][target] = {fun: [rule["sent_id"],]}
+
+
+		row_1 = []
+		row_2 = []
+
+		rule2feat = defaultdict(list)
+		for rule in self.dep2fun:
+				for feat, fund in distribution_by_function.items():
+						if "dep_" or "head_" in feat:
+								feat_name = feat.split("_")[-1]
+						else: feat_name = feat
+						d = feature_distribution[feat_name]
+						row_1 = []
+						row_2 = []
+
+						for i,v in fund.items():
+								row_2.append(len(set(d[i])))
+								row_1.append(len(set(v.get(rule, []))))
+
+						if row_2 and sum(row_1) != 0 and len(row_1) > 1:
+								data = np.array([row_1, row_2])
+								data[1] = data[1] - data[0]
+								res = fisher_exact(data)
+		
+								if res.pvalue <= 0.05:
+										rule2feat[rule].append(feat)
+
+						
+		return rule2feat
 		 
 	def generate_grammar(self):
 		"""
@@ -74,19 +137,24 @@ class GrammarGenerator():
 		
 		grammar_rules = defaultdict(dict) # rule -> all possible constraints
 		dep2fun = get_dep2fun()
+		rule2feat = self.calculate_significance()
+
+		print(rule2feat)
+		
 		for feature in tqdm(self.dataset):
-			p = f"data/{self.lang}_{feature}_{self.model}.json"
+			p = f"data/{self.treebank}_{feature}_{self.model}.json"
 			if os.path.exists(p):
 				rules = self.__read_json__(p)
 				if feature.count("_") > 1 or (feature.count("_") > 0 and feature.endswith("wordOrder")): # if trees are divided by function
 					fname, feat = feature.split("_", maxsplit=1) 
 				else:
 					feat = feature
-
+					fname = None
 				
-				rules = get_rules(rules, feat, dep2fun)
+				rules = get_rules(rules, feat, dep2fun, fname)
 				for k, v in rules.items():
-					grammar_rules[k].update({feature : v})
+					if (not fname or feature.startswith(k)) and (feat in rule2feat[k] or feat.startswith("agr") or feat == "wordOrder"):
+						grammar_rules[k].update({feature : v})
         
 		with open(f"data/{self.treebank}_rules.json", "w") as f:
 			json.dump(grammar_rules, f)
@@ -97,10 +165,12 @@ class GrammarGenerator():
 		"""
 		The function combines subrules to a rule that corresponds to a function
 		"""
+		# SOMETHING IS WRONG HERE
 		with open(f"data/{self.treebank}_rules.json") as f:
 			rules = json.load(f)
+
 		
-		matches = get_matches(self.dep2fun, rules, self.dataset)
+		matches = get_matches(self.dep2fun, rules, self.dataset, funs=self.funs)
 		dep2scores = {}
 		for rule_name in self.dep2fun:
 			if matches[rule_name]:
@@ -119,43 +189,66 @@ class GrammarGenerator():
 		with open("subsets.pickle", "rb") as f:
 			subsets = pickle.load(f)
 
-		with open("results.json") as f:
-			results = json.load(f)
 
 		with open(f"data/{self.treebank}_rules.json") as f:
 			rules = json.load(f)
 
 		def get_weighted_results(coverage, precision, n_fules, n_conditions):
-			return 0.25 * coverage + 0.25 * precision + 0.25 * n_fules + 0.25 * 1/(n_conditions+1)
+			return 0.25 * coverage + 0.25 * precision + 0.25 * n_rules + 0.25 * 1/(n_conditions+1)
 		
 		top_rules = {}
-		for rule_name, (rule_score, d) in subsets.items():
+		rule_subsets = defaultdict(list)
+		for rule_name, (rule_score, d) in tqdm(subsets.items()):
 			scores = {}
 			# rule_score[num] = (coverage, precision, fscore)
 			for rule, (coverage, precision, fscore) in rule_score.items():
 				#print(rule)
-				desc, n_rules, n_cond = get_rule_description(rule, rules)
+				desc, n_rules, n_cond = get_rule_description(rule_name, rule, rules, funs=self.funs)
 				weighted = get_weighted_results(coverage, precision, n_rules, n_cond)
 				scores[rule] = (coverage, precision, fscore, n_rules, n_cond, weighted, desc)
 
 
 			# Best combination by f-score
 			#rule_res = sorted(scores.items(), key=lambda x: -x[1][2])
-			#print(rule_res[0], "\n")
 			# Best combination by coverage
 			#rule_res = sorted(scores.items(), key=lambda x: -x[1][0])
-			#print(rule_res[0], "\n")
 			# Best combination by precision
 			#rule_res = sorted(scores.items(), key=lambda x: -x[1][1])
-			#print(rule_res[0], "\n")
 			# Best by combination
+			if rule_name == "PredVP":
+				print(scores)
 			if scores:
-				if rule_name == "PredVP":
-					print(sorted(scores.items(), key=lambda x: -x[1][5])[:5])
-				top_rules[rule_name] = sorted(scores.items(), key=lambda x: -x[1][2])[0]
+				top_rules[rule_name] = sorted(scores.items(), key=lambda x: (-x[1][-2]))[0]
+
+				
+				rule_subset = sorted(scores.items(), key=lambda x: -x[1][2])[:1000]
+				
+				#if self.funs:
+				#	full_length = len(self.dataset[rule_name])
+				#else:
+			#	full_length = len(d["covered"])
+			#	mtrx = get_mtrx(dict(rule_subset), d, full_length)
+
+			#	if len(rule_subset) > 1:
+			#		obj = GraphCutFunction(n=len(rule_subset), mode = 'dense', lambdaVal=0.2, separate_rep=False, mgsijs=mtrx, data=None, metric='cosine', num_neighbors=None)
+			#		greedyLis = obj.maximize(budget = 1, optimizer = 'NaiveGreedy',stopIfZeroGain=True, stopIfNegativeGain=True)
+
+			#		best_set = []
+			#		rule_found = []
+			#		for i in greedyLis:
+			#			best_set.append(i[0])
+			##			rule_found.append((rule_subset[i[0]][0], rule_subset[i[0]][1][-1]))
+			#		print("Best set:")
+			#		rule_subsets[rule_name].append(rule_found)
+			#	print(rule_subset)
+				# e = rule_subset
+				
 		
 		with open("top_rules.json", "w") as f:
 			json.dump(top_rules, f)
+
+		with open("rule_subsets.json", "w") as f:
+			json.dump(rule_subsets, f)
 
 	def get_next(self, typ):
 		next_fun = []
@@ -188,15 +281,15 @@ class GrammarGenerator():
 				if fun in top_rules:
 					rule = top_rules[fun]
 					inp_params = self.get_type(inp, out)
-					rule_string = generate_rule(list(zip(rule[0],rule[1][6])), inp_params)
+					rule_string = generate_rule(list(zip(rule[0],rule[1][6])), inp_params, self.predifined)
 					self.grammar[loc].append(rule_string) 
 				elif len(inp) == 1 and fun.startswith("Use"):
 					inp_params = self.get_type(inp, out)
 					rule_string = fun + " "+ inp[0].lower() + " = " + inp[0].lower()
 					self.grammar[loc].append(rule_string) 
-				elif fun in FUNS:
-					inp_params = self.get_type(inp, out)
-					self.grammar[loc].append(" ".join([fun, FUNS[fun]]))
+				#elif fun in FUNS:
+				#	inp_params = self.get_type(inp, out)
+				#	self.grammar[loc].append(" ".join([fun, FUNS[fun]]))
 		
 
 	def generate_code(self):
@@ -229,19 +322,3 @@ class GrammarGenerator():
 		generate_grammar(self.grammar, "Kaz")
 		
 		
-
-
-"""
-textfile = "rule\tcoverage\tprecision\tfscore\n"
-for rule, scores in rule_score.items():
-     textfile += str(rule) + "\t" + "\t".join(map(str,scores)) + "\n"
-
-with open("rule_scores.csv", "w") as f:
-    f.write(textfile)
-
-
-
-
-
-
-"""
