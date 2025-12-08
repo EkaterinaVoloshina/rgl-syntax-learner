@@ -1,4 +1,4 @@
-module DecisionTree (build, predict, predict', drawDecisionTree,
+module DecisionTree (build, buildR, predict, predict', drawDecisionTree,
                      Attribute(..),
                      DecisionTree(..)) where
 
@@ -63,6 +63,37 @@ build atts dataset =
                                   right= right
                                 })
 
+
+-- | Build a regression DecisionTree from the given training set. The number in the result is the average standard deviation.
+buildR :: [Attribute n a] -> [(a,Double)] -> (Double, DecisionTree n a Double)
+buildR atts []      = error "Cannot learn without data"
+buildR atts dataset =
+  let ((sum,count),t) = build (0,0) dataset
+  in (sum/count,t)
+  where
+    build st@(sum,count) dataset =
+      case bestAttributeR dataset atts of
+        (0,  _         ) -> let (avg,dev) = avgDeviation (map snd dataset)
+                            in ((sum+dev,count+1),Leaf avg dev)
+        (inf,P n proj p) -> let (st',children) = mapAccumL build st p -- recursivly build the children
+                            in (st'
+                               ,Decision {
+                                  name     = n,
+                                  proj     = proj,
+                                  children = children
+                                })
+        (inf,PC n proj k l r)
+                         -> let (st1,left)  = build st  l -- recursivly build the children
+                                (st2,right) = build st1 r -- recursivly build the children
+                            in (st2
+                               ,DecisionC {
+                                  name = n,
+                                  proj = proj,
+                                  key  = k,
+                                  left = left,
+                                  right= right
+                                })
+
 -- | Predicts the result for a given input
 predict :: DecisionTree n a b -> a -> Maybe b
 predict t a = fmap fst (predict' t a)
@@ -110,6 +141,22 @@ entropy cs = Map.foldr help 0 cs
     help s acc | s/=0 = let p = fromIntegral s / n in acc-p*log p/log 2
     help _ _ = error "entropy: we are not supposed to get p=0"
 
+avgDeviation :: [Double] -> (Double,Double)
+avgDeviation [] = (0/0,0)
+avgDeviation xs = (a,sqrt (sum2 / len))
+  where
+    a         = sum/len
+    (sum,len) = compute 0 0 xs
+    sum2      = compute2 0 xs
+
+    compute sum len []     = (sum,len)
+    compute sum len (x:xs) = compute (sum+x) (len+1) xs
+
+    compute2 sum []     = sum
+    compute2 sum (x:xs) = compute2 (sum+square (x-a)) xs
+
+    square x = x*x
+
 -- we want to count how many Data we have for each label. Thus we group it with 1 as 
 -- singleton value and add 1 whenever we find another Datum with the same label       
 counts :: Ord b => [b] -> Map.Map b Int 
@@ -143,9 +190,43 @@ partition dataset attr =
     total_ent    = entropy (counts (map snd dataset))
     split_ent xs = (fromIntegral (length xs) / size) * entropy (counts (map snd xs))
 
+
+
+-- | How much information does this Attribute give us for the given Dataset.
+-- It is defined as 
+--
+-- entropy(set) - sum p_i * entropy {dat_i | dat has value i for attribute a}
+partitionR :: [(a,Double)]                  -- ^ the data
+           -> Attribute n a                 -- ^ the attribute
+           -> (Double,Partition n a Double) -- ^ the information and the partition
+partitionR dataset attr =
+  case attr of
+    A  n project -> let p   = groupWith (project.fst) (:[]) (++) dataset
+                        inf = total_dev - sum (map split_dev (Map.elems p))
+                    in (inf,P n project p)
+    AC n project -> let p   = groupWith (project.fst) (:[]) (++) dataset
+                        ps  = split [] (Map.toList p)
+
+                        split xs []            = []
+                        split xs ((k,ys):rest) =
+                          let pre  = ys++xs
+                              post = concatMap snd rest
+                          in PC n project k pre post : split pre rest
+
+                    in (head.sortOn negatedInf) [(total_dev - (split_dev xs + split_dev ys),p) | p@(PC _ _ k xs ys) <- ps]
+  where
+    size = fromIntegral $ length dataset
+
+    total_dev    = snd (avgDeviation (map snd dataset))
+    split_dev xs = (fromIntegral (length xs) / size) * snd (avgDeviation (map snd xs))
+
 -- | Return the attribute which gives us greatest gain in information
 bestAttribute :: Ord b => [(a,b)] -> [Attribute n a] -> (Double,Partition n a b)
 bestAttribute dataset = head.sortOn negatedInf . map (\x -> partition dataset x)
+
+-- | Return the attribute which gives us greatest gain in information
+bestAttributeR :: [(a,Double)] -> [Attribute n a] -> (Double,Partition n a Double)
+bestAttributeR dataset = head.sortOn negatedInf . map (\x -> partition dataset x)
 
 negatedInf (inf,_) = -inf
 
