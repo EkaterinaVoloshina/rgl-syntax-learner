@@ -23,75 +23,7 @@ import Control.Applicative hiding (Const)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 import DecisionTree
-import Debug.Trace
 
-data Rule = Rule [Atom] Atom deriving Show
-data Atom
-       = NotEqual ATerm ATerm
-       | Equal    ATerm ATerm
-       | PreOrder
-       | PostOrder
-       deriving Show
-type Value = String
-type Feature = String
-data ATerm
-       = Head Feature
-       | Dep  Feature
-       | Const Value
-       deriving Show
-
-readRules lang fpath = do
-  files <- getDirectoryContents fpath
-  fmap (Map.fromListWith (++) . concat) $ forM files $ \fname -> do
-     case split '_' (takeBaseName fname) of
-       [l,fun,x,feat,_] | l == lang -> do
-              s <- readFile (fpath</>fname)
-              case decode s of
-                JSON.Ok res    -> return [(fun,map (toRule [x,feat]) res)]
-                JSON.Error msg -> fail msg
-       [l,fun,"wordOrder",_] | l == lang -> do
-              s <- readFile (fpath</>fname)
-              case decode s of
-                JSON.Ok res    -> return [(fun,map (toRule ["wordOrder"]) res)]
-                JSON.Error msg -> fail msg
-       _ -> return []
-  where
-    toRule x xs = Rule (map toPremise (init xs)) (toConsequent x (last xs))
-
-    toPremise ["head","feats",feat,'!':value] = NotEqual (Head feat)  (Const value)
-    toPremise ["head","feats",feat,    value] = Equal    (Head feat)  (Const value)
-    toPremise ["head","pos",       '!':value] = Equal    (Head "pos") (Const value)
-    toPremise ["head","pos",           value] = Equal    (Head "pos") (Const value)
-    toPremise ["dep", "feats",feat,'!':value] = NotEqual (Dep  feat)  (Const value)
-    toPremise ["dep", "feats",feat,    value] = Equal    (Dep  feat)  (Const value)
-    toPremise ["dep","pos",        '!':value] = Equal    (Dep "pos")  (Const value)
-    toPremise ["dep","pos",            value] = Equal    (Dep "pos")  (Const value)
-    toPremise ["position", "!True"]           = PreOrder
-    toPremise ["position",  "True"]           = PostOrder
-    toPremise ["position", "False"]           = PreOrder
-    toPremise ["position", "!False"]          = PostOrder
-    toPremise s = error (show s)
-
-    toConsequent ["head",feat] ["rule", '!':val] = NotEqual (Head feat) (Const val)
-    toConsequent ["head",feat] ["rule",     val] = Equal (Head feat) (Const val)
-    toConsequent ["dep", feat] ["rule", '!':val] = NotEqual (Dep  feat) (Const val)
-    toConsequent ["dep", feat] ["rule",     val] = Equal (Dep  feat) (Const val)
-    toConsequent ["agr", feat] ["rule",   "Yes"] = Equal (Head feat) (Dep  feat)
-    toConsequent ["agr", feat] ["rule",    "No"] = NotEqual (Head feat) (Dep  feat)
-    toConsequent ["wordOrder"] ["rule",   "Yes"] = PostOrder
-    toConsequent ["wordOrder"] ["rule",    "No"] = PreOrder
-
-ppRule (Rule []       consequent) = ppAtom consequent <> '.'
-ppRule (Rule premises consequent) = ppAtom consequent <+> pp ":-" <+> hsep (punctuate (pp ",") (map ppAtom premises)) <> '.'
-
-ppAtom (NotEqual t1 t2) = pp "ne" <> parens (ppATerm t1 <> pp ',' <+> ppATerm t2)
-ppAtom (Equal    t1 t2) = pp "eq" <> parens (ppATerm t1 <> pp ',' <+> ppATerm t2)
-ppAtom PreOrder         = pp "preOrder"
-ppAtom PostOrder        = pp "postOrder"
-
-ppATerm (Head feat) = pp "head." <> pp feat
-ppATerm (Dep  feat) = pp "dep."  <> pp feat
-ppATerm (Const val) = pp val
 
 type POS  = String
 type Node = (Int,String,POS,[(String,String)],String)
@@ -137,11 +69,6 @@ split sep (c:cs)
                   (x:xs) -> (c:x):xs
 
 main = do
-  let lang  = "Macedonian"
-      fpath = "../data/"
-  rules <- readRules lang fpath
-  writeFile (lang++"_rules.txt") $
-    show (vcat (map (\(fun,rules) -> (fun <+> vcat (map ppRule rules))) (Map.toList rules)))
   args <- getArgs
 
   trees <- readCONLL "../SUD_Macedonian-MTB/mk_mtb-sud-test.conllu"
@@ -169,13 +96,12 @@ main = do
   let q = (moduleNameS "ResMkd",identS "genNum")
   ty <- lookupResType gr q
 
-  ts <- runGenM (codeGen gr cnc (Config [("ADJ",1),("NOUN",2)] rules patterns) [(Q q,ty)] cnc_ty)
+  ts <- runGenM (codeGen gr cnc (Config [("ADJ",1),("NOUN",2)] patterns) [(Q q,ty)] cnc_ty)
   mapM_ (\(acc,t) -> print (pp acc <+> ppTerm Unqualified 0 t)) (sortOn fst ts)
 
 data Config
    = Config {
        args     :: [(POS,Int)],
-       rules    :: Map.Map String [Rule],
        patterns :: [[Node]]
      }
 
@@ -231,10 +157,7 @@ codeGen gr cnc cfg env ty0@(Sort s)
     let constrs = [(reverse vs,inh') | (vs,inh) <- constrs0, let inh' = [(t,v,ty) | (t,ty) <- env, v <- (take 1 . reverse) [v | (v,ty') <- vs, ty == ty']]++inh]
         attrs   = zipWith (\i (t,_,ty) -> A (TermName t id) (!!i)) [0..] (snd (head constrs))
 
---    forM constrs $ \(vs,inh) -> do
-  --    trace (show ((hsep . map (ppTerm Unqualified 9 . fst)) vs <+> pp '|' <+> hsep (map (\(c,d,_) -> pp c <> pp '=' <> pp d) inh))) $ return ()
-
-    let (accuracy,subst) = 
+        (accuracy,subst) = 
             mapAccumL 
                (\accuracy i ->
                    let (acc',dt) = build attrs [(map (\(_,v,_) -> v) inh,fst (vs !! i)) | (vs,inh) <- constrs]
@@ -243,8 +166,6 @@ codeGen gr cnc cfg env ty0@(Sort s)
                [0..num_param-1]
 
         t = substitute subst t0
-
-    --trace (show (pp accuracy <+> pp t)) $ return ()
 
     return (accuracy,t)
   where
