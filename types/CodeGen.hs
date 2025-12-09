@@ -8,6 +8,7 @@ import GF.Grammar.Printer
 import GF.Grammar.Predef
 import GF.Grammar.Grammar hiding (Rule(..))
 import GF.Grammar.Lockfield
+import GF.Grammar.Macros (term2patt,composSafeOp)
 import GF.Compile
 import System.FilePath
 import System.Directory
@@ -16,12 +17,12 @@ import Text.JSON hiding (Result(..))
 import qualified Text.JSON as JSON
 import Data.Tree
 import Data.Char(toLower)
-import Data.List (sortOn)
+import Data.List (sortOn,mapAccumL)
 import Control.Monad
 import Control.Applicative hiding (Const)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
-import DecisionTree hiding (Node)
+import DecisionTree
 import Debug.Trace
 
 data Rule = Rule [Atom] Atom deriving Show
@@ -169,7 +170,7 @@ main = do
   ty <- lookupResType gr q
 
   ts <- runGenM (codeGen gr cnc (Config [("ADJ",1),("NOUN",2)] rules patterns) [(Q q,ty)] cnc_ty)
-  mapM_ (print . ppTerm Unqualified 0) ts
+  mapM_ (\(acc,t) -> print (pp acc <+> ppTerm Unqualified 0 t)) (sortOn fst ts)
 
 data Config
    = Config {
@@ -178,26 +179,38 @@ data Config
        patterns :: [[Node]]
      }
 
-codeGen :: SourceGrammar -> ModuleName -> Config -> [(Term,Type)] -> Type -> GenM Term
+data TermName a = TermName Term (a -> Term)
+
+codeGen :: SourceGrammar -> ModuleName -> Config -> [(Term,Type)] -> Type -> GenM (Double,Term)
 codeGen gr cnc cfg env (Prod bt _ arg res) = do
   let x = freshVar env arg
-  t <- codeGen gr cnc cfg ((Vr x,arg):env) res
-  return (Abs bt x t)
+  (accuracy,t) <- codeGen gr cnc cfg ((Vr x,arg):env) res
+  return (accuracy,Abs bt x t)
 codeGen gr cnc cfg env (RecType fs) = do
-  fs <- forM fs $ \(lbl,ty) -> do
-          t <- codeGen gr cnc cfg env ty
-          return (lbl,(Nothing,t))
-  return (R fs)
+  (acc,fs) <- genFields 1.0 fs
+  return (acc,R fs)
+  where
+    genFields acc []                        = return (acc,[])
+    genFields acc ((lbl@(LIdent id),ty):fs) = do
+      let cfg' = case [v | (Left lbl,v) <- mapping, lbl==id] of
+                   (v:_) -> cfg{patterns=filter (matching v) (patterns cfg)}
+                   _     -> cfg
+      (acc',t) <- codeGen gr cnc cfg' env ty
+      (acc,fs) <- genFields (acc'*acc) fs
+      return (acc, (lbl,(Nothing,t)):fs)
+
+    matching v patt = (not.null) [n|n@(_,_,_,morpho,_)<-patt,elem v morpho]
 codeGen gr cnc cfg env (Table arg res) = do
   let x = freshVar env arg
-  t <- codeGen gr cnc cfg ((Vr x,arg):env) res
-  return (T TRaw [(PV x,t)])
+  (accuracy,t) <- codeGen gr cnc cfg ((Vr x,arg):env) res
+  return (accuracy,T TRaw [(PV x,t)])
 codeGen gr cnc cfg env ty0@(QC q) = with q $
   do (t,ty) <- anyOf env
-     find env t ty ty0
+     t <- find env t ty ty0
+     return (1.0,t)
 codeGen gr cnc cfg env ty0@(Sort s)
   | s == cStr = do
-    ((t,num_param,num_inh),constrs) <-
+    ((t0,num_param,num_inh),constrs0) <-
          group (Meta 0,0,0) $ do
            patt <- anyOf (patterns cfg)
 
@@ -214,20 +227,26 @@ codeGen gr cnc cfg env ty0@(Sort s)
                  Nothing -> fail ("Missing "++pos++" argument")
 
            return ((str,length vs,length inh),(vs,inh))
-    trace (show (pp t)) $ return ()
 
-    attrs <- forM (zip [0..] (snd (head constrs))) $ \(i,(_,_,ty)) -> do
-               ts <- allParamValues gr ty
-               return (A (show (pp ty)) (!!i) ts)
+    let constrs = [(reverse vs,inh') | (vs,inh) <- constrs0, let inh' = [(t,v,ty) | (t,ty) <- env, v <- (take 1 . reverse) [v | (v,ty') <- vs, ty == ty']]++inh]
+        attrs   = zipWith (\i (t,_,ty) -> A (TermName t id) (!!i)) [0..] (snd (head constrs))
 
-    forM constrs $ \(vs,inh) -> do
-      trace (show ((hsep . map (ppTerm Unqualified 9 . fst) . reverse) vs <+> pp '|' <+> hsep (map (\(c,d,_) -> pp c <> pp '=' <> pp d) inh))) $ return ()
+--    forM constrs $ \(vs,inh) -> do
+  --    trace (show ((hsep . map (ppTerm Unqualified 9 . fst)) vs <+> pp '|' <+> hsep (map (\(c,d,_) -> pp c <> pp '=' <> pp d) inh))) $ return ()
 
-    forM [0..num_param-1] $ \i -> do
-      let (accuracy,dt) = build attrs [(map (\(_,v,_) -> v) inh,fst (vs !! i)) | (vs,inh) <- constrs]
-      trace (show accuracy++"\n"++drawDecisionTree dt) $ return ()
+    let (accuracy,subst) = 
+            mapAccumL 
+               (\accuracy i ->
+                   let (acc',dt) = build attrs [(map (\(_,v,_) -> v) inh,fst (vs !! i)) | (vs,inh) <- constrs]
+                   in (accuracy*acc',(i+1,decisionTree2term dt)))
+               1.0
+               [0..num_param-1]
 
-    return t
+        t = substitute subst t0
+
+    --trace (show (pp accuracy <+> pp t)) $ return ()
+
+    return (accuracy,t)
   where
     buildStr s []     f = return (Empty,s)
     buildStr s [x]    f = f s x
@@ -235,6 +254,14 @@ codeGen gr cnc cfg env ty0@(Sort s)
                              (t2,s) <- buildStr s xs f
                              return (C t1 t2,s)
 
+    decisionTree2term (Leaf t _) = t
+    decisionTree2term (Decision (TermName t f) _ children) = S (T TRaw [(p,decisionTree2term dt) | (k,dt) <- Map.toList children, Ok p <- [term2patt (f k)]]) t
+
+    substitute subst (Meta i) =
+      case lookup i subst of
+        Just t  -> t
+        Nothing -> Meta i
+    substitute subst t = composSafeOp (substitute subst) t
 
 find env t ty ty0
   | ty == ty0           = return t
@@ -254,29 +281,29 @@ find env t (Prod bt _ arg@(QC q) res) ty0 = do
 find env t ty _ = empty
 
 mapping =
-  [ (identS "count_form", ("Number","Count"))
-  , (identS "vocative",   ("Case","Voc"))
-  , (identS "adverb",     ("Adverb","Yes"))
-  , (identS "Sg",         ("Number","Sing"))
-  , (identS "Pl",         ("Number","Plur"))
-  , (identS "GSg",        ("Number","Sing"))
-  , (identS "GPl",        ("Number","Plur"))
-  , (identS "Masc",       ("Gender","Masc"))
-  , (identS "Fem",        ("Gender","Fem"))
-  , (identS "Neuter",     ("Gender","Neut"))
-  , (identS "Indef",      ("Definite","Ind"))
-  , (identS "Def",        ("Definite","Def"))
-  , (identS "Proximal",   ("Distance","Proximal"))
-  , (identS "Distal",     ("Distance","Distal"))
+  [ (Left (rawIdentS "count_form"),               ("Number","Count"))
+  , (Left (rawIdentS "vocative"),                 ("Case","Voc"))
+  , (Left (rawIdentS "adverb"),                   ("Adverb","Yes"))
+  , (Right (identS "Number",identS "Sg"),         ("Number","Sing"))
+  , (Right (identS "Number",identS "Pl"),         ("Number","Plur"))
+  , (Right (identS "GenNum",identS "GSg"),        ("Number","Sing"))
+  , (Right (identS "GenNum",identS "GPl"),        ("Number","Plur"))
+  , (Right (identS "Gender",identS "Masc"),       ("Gender","Masc"))
+  , (Right (identS "Gender",identS "Fem"),        ("Gender","Fem"))
+  , (Right (identS "Gender",identS "Neuter"),     ("Gender","Neut"))
+  , (Right (identS "Species",identS "Indef"),     ("Definite","Ind"))
+  , (Right (identS "Species",identS "Def"),       ("Definite","Def"))
+  , (Right (identS "Distance",identS "Proximal"), ("Distance","Proximal"))
+  , (Right (identS "Distance",identS "Distal"),   ("Distance","Distal"))
   ]
 
 findStr gr morpho vs t (Sort s)
   | s == cStr                  = return (t,vs)
 findStr gr morpho vs t (RecType fs) = do
   (l@(LIdent id),ty) <- anyOf fs
-  morpho <- case lookup (identC id) mapping of
-              Just v  -> pop v morpho
-              Nothing -> return morpho
+  morpho <- case [v | (Left lbl,v) <- mapping, lbl==id] of
+              (v:_) -> pop v morpho
+              _     -> return morpho
   findStr gr morpho vs (P t l) ty
 findStr gr morpho vs t (Table arg res) = do
   v <- findParam gr morpho arg
@@ -289,9 +316,9 @@ findParam gr morpho (QC q) = do
   (id,ctxt) <- case info of
                  ResParam (Just (L _ ps)) _ -> anyOf ps
                  _                          -> raise $ render (ppQIdent Qualified q <+> "has no parameter values defined")
-  morpho <- case lookup id mapping of
-              Just v  -> pop v morpho
-              Nothing -> return morpho
+  morpho <- case [v | (Right (_,con),v) <- mapping, con==id] of
+              (v:_) -> pop v morpho
+              _     -> return morpho
   foldM (\t (_,_,ty) -> fmap (App t) (findParam gr morpho ty)) (QC (mn,id)) ctxt
 
 findInh gr morpho t ty@(QC q) = do
@@ -299,9 +326,9 @@ findInh gr morpho t ty@(QC q) = do
   return (t,v,ty)
 findInh gr morpho t (RecType fs) = do
   (l@(LIdent id),ty) <- anyOf fs
-  morpho <- case lookup (identC id) mapping of
-              Just v  -> pop v morpho
-              Nothing -> return morpho
+  morpho <- case [v | (Left lbl,v) <- mapping, lbl==id] of
+              (v:_) -> pop v morpho
+              _     -> return morpho
   findInh gr morpho (P t l) ty
 findInh gr morpho t ty = empty
 
@@ -392,4 +419,3 @@ with q (GenM g) =
   GenM (\s k r -> if Set.member q s
                     then Ok r
                     else g (Set.insert q s) k r)
-
