@@ -1,9 +1,10 @@
-module DecisionTree (build, buildR, predict, predict', drawDecisionTree,
+module DecisionTree (build, buildC, predict, predict', drawDecisionTree,
                      Attribute(..),
                      DecisionTree(..)) where
 
 import Data.Maybe (fromJust)
 import Data.List hiding (partition)
+import Data.Functor.Contravariant
 import qualified Data.Map as Map
 
 -- | The type for a DecisionTree
@@ -14,7 +15,7 @@ data DecisionTree n a b
       proj     :: a -> r,                        -- ^ projection which computes the value of the attribute
       children :: Map.Map r (DecisionTree n a b) -- ^ and has children which can be found with a value of the attribute
     }
-  | forall r . (Show r,Ord r) => DecisionC {
+  | forall r . Ord r => DecisionC {
       name     :: n r,                           -- ^ the name of the attribute that this node asks for
       proj     :: a -> r,                        -- ^ projection which computes the value of the attribute
       key      :: r,                             -- ^ split threshold
@@ -22,15 +23,24 @@ data DecisionTree n a b
       right    :: DecisionTree n a b             -- ^ children with value grater than the threshold
     }
 
+instance Functor (DecisionTree n a) where
+  fmap f (Leaf b e) = Leaf (f b) e
+  fmap f (Decision  n proj children)     = Decision  n proj (fmap (fmap f) children)
+  fmap f (DecisionC n proj k left right) = DecisionC n proj k (fmap f left) (fmap f right)
+
 data Attribute n a
   = forall r . Ord r => A {             -- ^ A categorial attribute
        aName   :: n r,                  -- ^ the attributes name, used for visualization in drawDecisionTree
        aProj   :: a -> r                -- ^ a projection which extracts the value of the attribute from the input
     }
-  | forall r . (Show r,Ord r) => AC {   -- ^ A continuous attribute
+  | forall r . Ord r => AC {   -- ^ A continuous attribute
        aName   :: n r,
        aProj   :: a -> r
     }
+
+instance Contravariant (Attribute n) where
+  contramap f (A  n proj) = A  n (proj . f)
+  contramap f (AC n proj) = AC n (proj . f)
 
 -- | Build a DecisionTree from the given training set. The number in the result is the accuracy.
 build :: Ord b => [Attribute n a] -> [(a,b)] -> (Double,DecisionTree n a b)
@@ -65,14 +75,14 @@ build atts dataset =
 
 
 -- | Build a regression DecisionTree from the given training set. The number in the result is the average standard deviation.
-buildR :: [Attribute n a] -> [(a,Double)] -> (Double, DecisionTree n a Double)
-buildR atts []      = error "Cannot learn without data"
-buildR atts dataset =
+buildC :: [Attribute n a] -> [(a,Double)] -> (Double, DecisionTree n a Double)
+buildC atts []      = error "Cannot learn without data"
+buildC atts dataset =
   let ((sum,count),t) = build (0,0) dataset
   in (sum/count,t)
   where
     build st@(sum,count) dataset =
-      case bestAttributeR dataset atts of
+      case bestAttributeC dataset atts of
         (0,  _         ) -> let (avg,dev) = avgDeviation (map snd dataset)
                             in ((sum+dev,count+1),Leaf avg dev)
         (inf,P n proj p) -> let (st',children) = mapAccumL build st p -- recursivly build the children
@@ -127,7 +137,7 @@ drawDecisionTree showName showValue showResult = unlines . draw
 
 data Partition n a b
   = forall r . Ord r => P  (n r) (a -> r) (Map.Map r [(a,b)])
-  | forall r . (Show r,Ord r) => PC (n r) (a -> r) r [(a,b)] [(a,b)]
+  | forall r . Ord r => PC (n r) (a -> r) r [(a,b)] [(a,b)]
 
 
 -- | Computes the entropy of a Dataset
@@ -196,10 +206,10 @@ partition dataset attr =
 -- It is defined as 
 --
 -- entropy(set) - sum p_i * entropy {dat_i | dat has value i for attribute a}
-partitionR :: [(a,Double)]                  -- ^ the data
+partitionC :: [(a,Double)]                  -- ^ the data
            -> Attribute n a                 -- ^ the attribute
            -> (Double,Partition n a Double) -- ^ the information and the partition
-partitionR dataset attr =
+partitionC dataset attr =
   case attr of
     A  n project -> let p   = groupWith (project.fst) (:[]) (++) dataset
                         inf = total_dev - sum (map split_dev (Map.elems p))
@@ -225,8 +235,8 @@ bestAttribute :: Ord b => [(a,b)] -> [Attribute n a] -> (Double,Partition n a b)
 bestAttribute dataset = head.sortOn negatedInf . map (\x -> partition dataset x)
 
 -- | Return the attribute which gives us greatest gain in information
-bestAttributeR :: [(a,Double)] -> [Attribute n a] -> (Double,Partition n a Double)
-bestAttributeR dataset = head.sortOn negatedInf . map (\x -> partition dataset x)
+bestAttributeC :: [(a,Double)] -> [Attribute n a] -> (Double,Partition n a Double)
+bestAttributeC dataset = head.sortOn negatedInf . map (\x -> partitionC dataset x)
 
 negatedInf (inf,_) = -inf
 
