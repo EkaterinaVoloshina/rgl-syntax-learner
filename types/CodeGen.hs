@@ -17,7 +17,7 @@ import Text.JSON hiding (Result(..))
 import qualified Text.JSON as JSON
 import Data.Tree
 import Data.Char(toLower)
-import Data.List (sortOn,mapAccumL)
+import Data.List (sortOn,mapAccumL,partition)
 import Control.Monad
 import Control.Applicative hiding (Const)
 import qualified Data.Set as Set
@@ -255,7 +255,16 @@ codeGen gr cnc cfg env ty0@(Sort s)
                              return (C t1 t2,s)
 
     decisionTree2term (Leaf t _) = t
-    decisionTree2term (Decision (TermName t f) _ children) = S (T TRaw [(p,decisionTree2term dt) | (k,dt) <- Map.toList children, Ok p <- [term2patt (f k)]]) t
+    decisionTree2term (Decision (TermName t f) _ children) = 
+      let (xs,ys) = partition (uncurry (==))
+                       [(f k,decisionTree2term dt) | (k,dt) <- Map.toList children]
+          cs0 = [(p,t) | (t1,t) <- ys, Ok p <- [term2patt t1]]             
+      in case (xs,ys) of
+           ([],[]) -> Meta 0
+           ([],ys) -> S (T TRaw cs0) t
+           (xs,[]) -> t
+           (xs,ys) -> let x = identS "x"
+                      in S (T TRaw (cs0++[(PV x,Vr x)])) t
 
     substitute subst (Meta i) =
       case lookup i subst of
