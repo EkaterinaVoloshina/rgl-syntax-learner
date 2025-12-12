@@ -1,3 +1,10 @@
+module CodeGen(readCONLL,Node(..),ppNode,drawTree,
+               loadGrammar,
+               identS,Ident,
+               rawIdentS,RawIdent,
+               noSmarts,
+               learn) where
+
 import Prelude hiding ((<>))
 import GF.Infra.Ident
 import GF.Infra.Option
@@ -8,13 +15,10 @@ import GF.Grammar.Printer
 import GF.Grammar.Predef
 import GF.Grammar.Grammar hiding (Rule(..))
 import GF.Grammar.Lockfield
-import GF.Grammar.Macros (term2patt,composSafeOp)
+import GF.Grammar.Macros (term2patt,composSafeOp,typeFormCnc)
 import GF.Compile
 import System.FilePath
 import System.Directory
-import System.Environment
-import Text.JSON hiding (Result(..))
-import qualified Text.JSON as JSON
 import Data.Tree
 import Data.Char(toLower)
 import Data.List (sortOn,mapAccumL,partition)
@@ -24,14 +28,151 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import DecisionTree
 
+learn cnc gr mapping smarts trees = do
+  a_ty <- lookupResDef gr (cnc,identS "A")
+  n_ty <- lookupResDef gr (cnc,identS "N")
+  let ap = identS "ap"
+      cn = identS "cn"
+      patts = do  -- query edges matching AdjCN
+         t <- trees
+         (n1@(_,_,"NOUN",_,_),n2@(_,_,"ADJ",_,"mod")) <- edges t
+         return [(n1,Vr cn,n_ty),(n2,Vr ap,a_ty)]
+      cfg = Config [(Vr ap,a_ty),(Vr cn,n_ty)] -- argument types
+                   patts                       -- matching patterns
+                   mapping
+                   smarts
+
+  mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
+
+  let res = fmap (Map.fromListWith (++)) $ runGenM $ do
+               patt <- anyOf (patterns cfg)
+
+               inh <- runGenM $ do
+                        ((_,_,_,morpho,_),t,ty) <- anyOf patt
+                        findInh gr cfg morpho t ty
+
+               (str,vs) <- buildStr [] (sortOn (\((id,_,_,_,_),_,_)->id) patt)
+                                       (\vs ((_,_,_,morpho,_),t,ty) -> findStr gr cfg morpho vs t ty)
+               return ((str,length vs,length inh),[(reverse vs,inh)])
+  m <- case res of
+    Ok m    -> return m
+    Bad msg -> fail msg
+
+  forM_ (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
+    putStrLn ""
+    print (ppTerm Unqualified 0 t0)
+
+    forM_ dataset $ \(vs,inh) ->
+      print (hsep (map (\(_,t,_) -> ppTerm Unqualified 10 t) vs) <+> pp '|' <+>
+                                    hsep (punctuate ";" (map (\(t1,t2,ty) -> pp t1 <> pp '=' <> pp t2 <+> pp ':' <+> pp ty) inh)))
+
+    let (accuracy,_,t) = instantiate dim_dataset dataset t0 []
+    if dim_inh > 0 && accuracy > stopping
+      then do putStrLn ""
+              putStrLn ("=== "++show accuracy)
+              print (pp t)
+      else let types = map (\(_,_,ty)->ty) (fst (head dataset))
+               res   = (reverse . sortOn (\(acc,_,_)->acc))
+                          (map (\varIndex ->
+                                   let var      = freshVar [] (types !! varIndex)
+                                       subst0   = [(varIndex+1,Vr var)]
+                                       dataset' = map (selectVars subst0) dataset
+                                   in instantiate dim_dataset dataset' t0 subst0)
+                               [0..dim_dataset-1])
+           in case res of
+                ((accuracy,subst0,t):rest)
+                   | null rest || accuracy > stopping -> do
+                         putStrLn ""
+                         putStrLn ("=== "++show accuracy)
+                         print (pp t)
+                   | otherwise ->
+                         cross_breed dim_dataset dataset t0 subst0 rest
+  where
+    stopping = 0.95
+
+    buildStr s []     f = return (Empty,s)
+    buildStr s [x]    f = f s x
+    buildStr s (x:xs) f = do (t1,s) <- f s x
+                             (t2,s) <- buildStr s xs f
+                             return (C t1 t2,s)
+
+    selectVars subst0 ([],               inh) = ([], inh)
+    selectVars subst0 (v_ty@(i,v,ty):vs, inh) =
+      case lookup i subst0 of
+        Just t  -> selectVars subst0 (vs,(t,v,ty):inh)
+        Nothing -> let (vs',inh') = selectVars subst0 (vs,inh)
+                   in (v_ty:vs',inh')
+
+    decisionTree2term (Leaf t _) = t
+    decisionTree2term (Decision (TermName t f) _ children) =
+      let (xs,ys) = partition (uncurry (==))
+                       [(f k,decisionTree2term dt) | (k,dt) <- Map.toList children]
+          cs0 = [(p,t) | (t1,t) <- ys, Ok p <- [term2patt t1]]
+      in case (xs,ys) of
+           ([],[]) -> Meta 0
+           ([],ys) -> S (T TRaw cs0) t
+           (xs,[]) -> t
+           (xs,ys) -> let x = identS "x"
+                      in S (T TRaw (cs0++[(PV x,Vr x)])) t
+
+    substitute subst (Meta i) =
+      case lookup i subst of
+        Just t  -> t
+        Nothing -> Meta i
+    substitute subst t = composSafeOp (substitute subst) t
+
+    instantiate dim_dataset dataset t0 subst0 =
+      let t = foldr (\(_,Vr var) t -> T TRaw [(PV var,t)]) (substitute subst t0) subst0
+      in (fromIntegral (length dataset') / fromIntegral (length dataset), subst0, t)
+      where
+        attrs            = zipWith (\i (t,_,ty) -> A (TermName t (\(_,v,_) -> v)) ((!!i) . snd)) [0..] (snd (head dataset))
+        (dataset',subst) =
+            mapAccumL
+              (\dataset i ->
+                   case lookup i subst0 of
+                     Just t  -> (dataset, (i,t))
+                     Nothing -> let (dataset',dt) = build attrs [(d,t) | d@(vs,inh) <- dataset, (i',t,_) <- vs, i'==i]
+                                in (map fst dataset',(i,decisionTree2term dt)))
+              dataset
+              [1..dim_dataset]
+
+    cross_breed dim_dataset dataset t0 subst0 ((_,subst0',_):rest) =
+       let subst0'' = subst0++subst0'
+           dataset' = map (selectVars subst0'') dataset
+           (accuracy,_,t) = instantiate dim_dataset dataset' t0 subst0''
+       in if null rest || accuracy > stopping
+            then do putStrLn ""
+                    putStrLn ("=== "++show accuracy)
+                    print (pp t)
+            else cross_breed dim_dataset dataset t0 subst0'' rest
+
 
 type POS  = String
 type Node = (Int,String,POS,[(String,String)],String)
 
+data Config
+   = Config {
+       args     :: [(Term,Type)],
+       patterns :: [[(Node,Term,Type)]],
+       mapping  :: [(Either RawIdent (Ident,Ident),(String,String))],
+       smarts   :: Map.Map QIdent [(QIdent,Context)]
+     }
+
+noSmarts = Map.empty
+
+data TermName a = TermName Term (a -> Term)
+
+loadGrammar :: FilePath -> IO (ModuleName,SourceGrammar)
+loadGrammar fpath = batchCompile noOptions Nothing [fpath]
+
 readCONLL :: FilePath -> IO [Tree Node]
 readCONLL fpath = do
-  ls <- fmap lines $ readFile fpath
-  return (map (toTree "0" (0,"root","",[],"")) (stanzas ls))
+  fs <- getDirectoryContents fpath
+  fmap concat $ forM fs $ \f -> do
+     if takeExtension f == ".conllu"
+       then do ls <- fmap lines $ readFile (fpath </> f)
+               return (map (toTree "0" (0,"root","",[],"")) (stanzas ls))
+       else return []
   where
     stanzas []           = []
     stanzas (('#':_):ls) = stanzas ls
@@ -50,12 +191,17 @@ readCONLL fpath = do
           case break (=='=') s of
             (x,'=':y) -> (x,y)
 
-nodes (Node n1 children) =
-  n1 : concatMap nodes children
+nodes t = collect t []
+  where
+    collect t@(Node n children) ns = foldr collect (n:ns) children
 
-edges (Node n1 children) =
-  [(n1,n2) | Node n2 _ <- children] ++
-  concatMap edges children
+edges t = collect t []
+  where
+    collect t@(Node n1 children) es = foldr collect ([(n1,n2) | Node n2 _ <- children]++es) children
+
+subtrees t = collect t []
+  where
+    collect t@(Node n children) ts = foldr collect (t:ts) children
 
 ppNode (id,lemma,pos,morph,rel) = pp id <+> pp lemma <+> pp pos <+> pp (show morph) <+> pp rel
 
@@ -68,207 +214,44 @@ split sep (c:cs)
                   []     -> [[c]]
                   (x:xs) -> (c:x):xs
 
-main = do
-  args <- getArgs
-
-  trees <- readCONLL "../SUD_Macedonian-MTB/mk_mtb-sud-test.conllu"
-  mapM_ (putStrLn . drawTree . fmap (show . ppNode)) trees
-
-  (cnc,gr) <- batchCompile noOptions Nothing args
-  abs <- abstractOfConcrete gr cnc
-  abs_ty <- lookupFunType gr abs (identS "AdjCN")
-  cnc_ty <- linTypeOfType gr cnc abs_ty
-
-  let params = Map.fromListWith (++) $ do
-        t <- trees
-        (_,_,_,morph,_) <- nodes t
-        (ty,v) <- morph
-        return (ty,[v])
-
-      patterns = do  -- query edges matching AdjCN
-        t <- trees
-        (n1@(_,_,"NOUN",_,_),n2@(_,_,"ADJ",_,"mod")) <- edges t
-        return [n1,n2]
-
-  mapM_ (print . hsep . punctuate (pp ';') . map ppNode) patterns
-
-  -- we need to add genNum as a helper function in the environment 
-  let q = (moduleNameS "ResMkd",identS "genNum")
-  ty <- lookupResType gr q
-
-  ts <- runGenM (codeGen gr cnc (Config [("ADJ",1),("NOUN",2)] patterns) [(Q q,ty)] cnc_ty)
-  mapM_ (\(acc,t) -> print (pp acc <+> ppTerm Unqualified 0 t)) (sortOn fst ts)
-
-data Config
-   = Config {
-       args     :: [(POS,Int)],
-       patterns :: [[Node]]
-     }
-
-data TermName a = TermName Term (a -> Term)
-
-codeGen :: SourceGrammar -> ModuleName -> Config -> [(Term,Type)] -> Type -> GenM (Double,Term)
-codeGen gr cnc cfg env (Prod bt _ arg res) = do
-  let x = freshVar env arg
-  (accuracy,t) <- codeGen gr cnc cfg ((Vr x,arg):env) res
-  return (accuracy,Abs bt x t)
-codeGen gr cnc cfg env (RecType fs) = do
-  (acc,fs) <- genFields 1.0 fs
-  return (acc,R fs)
-  where
-    genFields acc []                        = return (acc,[])
-    genFields acc ((lbl@(LIdent id),ty):fs) = do
-      let cfg' = case [v | (Left lbl,v) <- mapping, lbl==id] of
-                   (v:_) -> cfg{patterns=filter (matching v) (patterns cfg)}
-                   _     -> cfg
-      (acc',t) <- codeGen gr cnc cfg' env ty
-      (acc,fs) <- genFields (acc'*acc) fs
-      return (acc, (lbl,(Nothing,t)):fs)
-
-    matching v patt = (not.null) [n|n@(_,_,_,morpho,_)<-patt,elem v morpho]
-codeGen gr cnc cfg env (Table arg res) = do
-  let x = freshVar env arg
-  (accuracy,t) <- codeGen gr cnc cfg ((Vr x,arg):env) res
-  return (accuracy,T TRaw [(PV x,t)])
-codeGen gr cnc cfg env ty0@(QC q) = with q $
-  do (t,ty) <- anyOf env
-     t <- find env t ty ty0
-     return (1.0,t)
-codeGen gr cnc cfg env ty0@(Sort s)
-  | s == cStr = do
-    ((t0,num_param,num_inh),constrs0) <-
-         group (Meta 0,0,0) $ do
-           patt <- anyOf (patterns cfg)
-
-           inh <- runGenM $ do
-                    (pos,i) <- anyOf (args cfg)
-                    let morpho = head [morpho | (_,_,pos',morpho,_) <- patt, pos==pos']
-                    let (t,ty) = reverse env !! i
-                    findInh gr morpho t ty
-
-           (str,vs) <- buildStr [] (sortOn (\(id,_,_,_,_)->id) patt) $ \vs (_,_,pos,morpho,_) ->
-               case lookup pos (args cfg) of
-                 Just i  -> do let (t,ty) = reverse env !! i
-                               findStr gr morpho vs t ty
-                 Nothing -> fail ("Missing "++pos++" argument")
-
-           return ((str,length vs,length inh),(vs,inh))
-
-    let constrs = [(reverse vs,inh') | (vs,inh) <- constrs0, let inh' = [(t,v,ty) | (t,ty) <- env, v <- (take 1 . reverse) [v | (v,ty') <- vs, ty == ty']]++inh]
-        attrs   = zipWith (\i (t,_,ty) -> A (TermName t id) (!!i)) [0..] (snd (head constrs))
-
-        (accuracy,subst) = 
-            mapAccumL 
-               (\accuracy i ->
-                   let (acc',dt) = build attrs [(map (\(_,v,_) -> v) inh,fst (vs !! i)) | (vs,inh) <- constrs]
-                   in (accuracy*acc',(i+1,decisionTree2term dt)))
-               1.0
-               [0..num_param-1]
-
-        t = substitute subst t0
-
-    return (accuracy,t)
-  where
-    buildStr s []     f = return (Empty,s)
-    buildStr s [x]    f = f s x
-    buildStr s (x:xs) f = do (t1,s) <- f s x
-                             (t2,s) <- buildStr s xs f
-                             return (C t1 t2,s)
-
-    decisionTree2term (Leaf t _) = t
-    decisionTree2term (Decision (TermName t f) _ children) = 
-      let (xs,ys) = partition (uncurry (==))
-                       [(f k,decisionTree2term dt) | (k,dt) <- Map.toList children]
-          cs0 = [(p,t) | (t1,t) <- ys, Ok p <- [term2patt t1]]             
-      in case (xs,ys) of
-           ([],[]) -> Meta 0
-           ([],ys) -> S (T TRaw cs0) t
-           (xs,[]) -> t
-           (xs,ys) -> let x = identS "x"
-                      in S (T TRaw (cs0++[(PV x,Vr x)])) t
-
-    substitute subst (Meta i) =
-      case lookup i subst of
-        Just t  -> t
-        Nothing -> Meta i
-    substitute subst t = composSafeOp (substitute subst) t
-
-find env t ty ty0
-  | ty == ty0           = return t
-find env t (RecType fs) ty0 = do
-  (l,ty) <- anyOf fs
-  find env (P t l) ty ty0
-find env t (Table arg@(QC q) res) ty0 = do
-  p <- with q $ do
-         (t,ty) <- anyOf env
-         find env t ty arg
-  find env (S t p) res ty0
-find env t (Prod bt _ arg@(QC q) res) ty0 = do
-  p <- with q $ do
-         (t,ty) <- anyOf env
-         find env t ty arg
-  find env (App t p) res ty0
-find env t ty _ = empty
-
-mapping =
-  [ (Left (rawIdentS "count_form"),               ("Number","Count"))
-  , (Left (rawIdentS "vocative"),                 ("Case","Voc"))
-  , (Left (rawIdentS "adverb"),                   ("Adverb","Yes"))
-  , (Right (identS "Number",identS "Sg"),         ("Number","Sing"))
-  , (Right (identS "Number",identS "Pl"),         ("Number","Plur"))
-  , (Right (identS "GenNum",identS "GSg"),        ("Number","Sing"))
-  , (Right (identS "GenNum",identS "GPl"),        ("Number","Plur"))
-  , (Right (identS "Gender",identS "Masc"),       ("Gender","Masc"))
-  , (Right (identS "Gender",identS "Fem"),        ("Gender","Fem"))
-  , (Right (identS "Gender",identS "Neuter"),     ("Gender","Neut"))
-  , (Right (identS "Species",identS "Indef"),     ("Definite","Ind"))
-  , (Right (identS "Species",identS "Def"),       ("Definite","Def"))
-  , (Right (identS "Distance",identS "Proximal"), ("Distance","Proximal"))
-  , (Right (identS "Distance",identS "Distal"),   ("Distance","Distal"))
-  ]
-
-findStr gr morpho vs t (Sort s)
+findStr gr cfg morpho vs t (Sort s)
   | s == cStr                  = return (t,vs)
-findStr gr morpho vs t (RecType fs) = do
+findStr gr cfg morpho vs t (RecType fs) = do
   (l@(LIdent id),ty) <- anyOf fs
-  morpho <- case [v | (Left lbl,v) <- mapping, lbl==id] of
+  morpho <- case [v | (Left lbl,v) <- mapping cfg, lbl==id] of
               (v:_) -> pop v morpho
               _     -> return morpho
-  findStr gr morpho vs (P t l) ty
-findStr gr morpho vs t (Table arg res) = do
-  v <- findParam gr morpho arg
-  let p = Meta (length vs+1)
-  findStr gr morpho ((v,arg):vs) (S t p) res
-findStr gr morpho vs t ty = empty
+  findStr gr cfg morpho vs (P t l) ty
+findStr gr cfg morpho vs t (Table arg res) = do
+  v <- findParam gr cfg morpho arg
+  let i = length vs+1
+      p = Meta i
+  findStr gr cfg morpho ((i,v,arg):vs) (S t p) res
+findStr gr cfg morpho vs t ty = empty
 
-findParam gr morpho (QC q) = do
-  (mn,info) <- lookupOrigInfo gr q
-  (id,ctxt) <- case info of
-                 ResParam (Just (L _ ps)) _ -> anyOf ps
-                 _                          -> raise $ render (ppQIdent Qualified q <+> "has no parameter values defined")
-  morpho <- case [v | (Right (_,con),v) <- mapping, con==id] of
+findParam gr cfg morpho (QC q) = do
+  (q,ctxt) <- case Map.lookup q (smarts cfg) of
+                Just ps -> anyOf ps
+                Nothing -> do (mn,info) <- lookupOrigInfo gr q
+                              case info of
+                                ResParam (Just (L _ ps)) _ -> do (id,ctxt) <- anyOf ps
+                                                                 return ((mn,id),ctxt)
+                                _                          -> raise $ render (ppQIdent Qualified q <+> "has no parameter values defined")
+  morpho <- case [v | (Right (_,con),v) <- mapping cfg, con==snd q] of
               (v:_) -> pop v morpho
               _     -> return morpho
-  foldM (\t (_,_,ty) -> fmap (App t) (findParam gr morpho ty)) (QC (mn,id)) ctxt
+  foldM (\t (_,_,ty) -> fmap (App t) (findParam gr cfg morpho ty)) (QC q) ctxt
 
-findInh gr morpho t ty@(QC q) = do
-  v <- findParam gr morpho ty
+findInh gr cfg morpho t ty@(QC q) = do
+  v <- findParam gr cfg morpho ty
   return (t,v,ty)
-findInh gr morpho t (RecType fs) = do
+findInh gr cfg morpho t (RecType fs) = do
   (l@(LIdent id),ty) <- anyOf fs
-  morpho <- case [v | (Left lbl,v) <- mapping, lbl==id] of
+  morpho <- case [v | (Left lbl,v) <- mapping cfg, lbl==id] of
               (v:_) -> pop v morpho
               _     -> return morpho
-  findInh gr morpho (P t l) ty
-findInh gr morpho t ty = empty
-
-linTypeOfType :: ErrorMonad m => Grammar -> ModuleName -> Type -> m Type
-linTypeOfType gr cnc (Prod bt x arg res) = do
-  arg <- linTypeOfType gr cnc arg
-  res <- linTypeOfType gr cnc res
-  return (Prod bt x arg res)
-linTypeOfType gr cnc (Q (abs,q)) = do
-  lookupResDef gr (cnc,q)
+  findInh gr cfg morpho (P t l) ty
+findInh gr cfg morpho t ty = empty
 
 freshVar env ty = fresh (letter ty) 1
   where
@@ -289,7 +272,6 @@ freshVar env ty = fresh (letter ty) 1
       in case [x | (Vr x,_) <- env, x == v] of
            [] -> v
            _  -> fresh c (i+1)
-
 
 newtype GenM a = GenM (forall r . Set.Set QIdent -> (a -> r -> Err r) -> r -> Err r)
 
@@ -324,13 +306,6 @@ runGenM (GenM g) =
     Ok xs   -> return xs
     Bad msg -> raise msg
 
-group :: Ord a => a -> GenM (a,b) -> GenM (a,[b])
-group def (GenM g) =
-  case g Set.empty (\(x,y) m -> Ok (Map.insertWith (++) x [y] m)) Map.empty of
-    Ok m
-      | Map.null m -> return (def,[])
-      | otherwise  -> anyOf (Map.toList m)
-    Bad msg        -> fail msg
 
 anyOf xs = GenM (choose xs)
   where
@@ -349,3 +324,4 @@ with q (GenM g) =
   GenM (\s k r -> if Set.member q s
                     then Ok r
                     else g (Set.insert q s) k r)
+

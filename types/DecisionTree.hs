@@ -43,28 +43,26 @@ instance Contravariant (Attribute n) where
   contramap f (AC n proj) = AC n (proj . f)
 
 -- | Build a DecisionTree from the given training set. The number in the result is the accuracy.
-build :: Ord b => [Attribute n a] -> [(a,b)] -> (Double,DecisionTree n a b)
+build :: Ord b => [Attribute n a] -> [(a,b)] -> ([(a,b)],DecisionTree n a b)
 build atts []      = error "Cannot learn without data"
-build atts dataset =
-  let (count,t) = build 0 dataset
-  in (fromIntegral count/fromIntegral (length dataset),t)
+build atts dataset = build [] dataset
   where
-    build count dataset =
+    build matched dataset =
       case bestAttribute dataset atts of
-        (0,  _         ) -> let cs = counts (map snd dataset)
-                                (dominantLabel,matching) = Map.findMax cs
-                            in (count+matching,Leaf dominantLabel (entropy cs))
-        (inf,P n proj p) -> let (count',children) = mapAccumL build count p -- recursivly build the children
-                            in (count'
+        (0,  _         ) -> let cs = groupWith snd (:[]) (++) dataset
+                                (dominantLabel,matched') = Map.findMax cs
+                            in (matched'++matched,Leaf dominantLabel (entropy (fmap length cs)))
+        (inf,P n proj p) -> let (matched',children) = mapAccumL build matched p -- recursivly build the children
+                            in (matched'
                                ,Decision {
                                   name     = n,
                                   proj     = proj,
                                   children = children
                                 })
         (inf,PC n proj k l r)
-                         -> let (count1,left)  = build count  l -- recursivly build the children
-                                (count2,right) = build count1 r -- recursivly build the children
-                            in (count2
+                         -> let (matched1,left)  = build matched  l -- recursivly build the children
+                                (matched2,right) = build matched1 r -- recursivly build the children
+                            in (matched2
                                ,DecisionC {
                                   name = n,
                                   proj = proj,
@@ -232,11 +230,11 @@ partitionC dataset attr =
 
 -- | Return the attribute which gives us greatest gain in information
 bestAttribute :: Ord b => [(a,b)] -> [Attribute n a] -> (Double,Partition n a b)
-bestAttribute dataset = head.sortOn negatedInf . map (\x -> partition dataset x)
+bestAttribute dataset = head.sortOn negatedInf . map (partition dataset)
 
 -- | Return the attribute which gives us greatest gain in information
 bestAttributeC :: [(a,Double)] -> [Attribute n a] -> (Double,Partition n a Double)
-bestAttributeC dataset = head.sortOn negatedInf . map (\x -> partitionC dataset x)
+bestAttributeC dataset = head.sortOn negatedInf . map (partitionC dataset)
 
 negatedInf (inf,_) = -inf
 
