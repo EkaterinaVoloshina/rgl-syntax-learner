@@ -122,14 +122,18 @@ drawDecisionTree showName showValue showResult = unlines . draw
       where
         drawSubTrees []      = []
         drawSubTrees [(k,v)] =
-            "|" : shift ("`- "++showValue n k++" ") "   " (draw v)
+            let s = showValue n k
+            in "|" : shift ("`- "++s++" ") ("    "++map (const ' ') s) (draw v)
         drawSubTrees ((k,v):xs) =
-            "|" : shift ("+- "++showValue n k++" ") "|  " (draw v) ++ drawSubTrees xs
+            let s = showValue n k
+            in "|" : shift ("+- "++s++" ") ("|   "++map (const ' ') s) (draw v) ++ drawSubTrees xs
     draw (DecisionC n proj k l r)   = lines (showName n) ++ drawSubTrees k l r
       where
         drawSubTrees k l r =
-            "|" : shift ("+- <="++showValue n k++" ") "|  " (draw l) ++
-            "|" : shift ("`- > "++showValue n k++" ") "   " (draw r)
+          let s = showValue n k
+          in
+            "|" : shift ("+- <="++s++" ") ("|     "++map (const ' ') s) (draw l) ++
+            "|" : shift ("`- > "++s++" ") ("      "++map (const ' ') s) (draw r)
 
     shift first other = zipWith (++) (first : repeat other)
 
