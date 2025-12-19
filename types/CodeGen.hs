@@ -28,9 +28,14 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import DecisionTree
 
+type Types = Map.Map String [Label]
+
 learn cnc gr mapping smarts trees = do
   a_ty <- lookupResDef gr (cnc,identS "A")
   n_ty <- lookupResDef gr (cnc,identS "N")
+  let RecType nTs = n_ty
+  let nountypes = []
+  print nTs
   let ap = identS "ap"
       cn = identS "cn"
       patts = do  -- query edges matching AdjCN
@@ -42,7 +47,7 @@ learn cnc gr mapping smarts trees = do
                    mapping
                    smarts
 
-  mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
+  -- mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
 
   let res = fmap (Map.fromListWith (++)) $ runGenM $ do
                patt <- anyOf (patterns cfg)
@@ -54,23 +59,28 @@ learn cnc gr mapping smarts trees = do
                (str,vs) <- buildStr [] (sortOn (\((id,_,_,_,_),_,_)->id) patt)
                                        (\vs ((_,_,_,morpho,_),t,ty) -> findStr gr cfg morpho vs t ty)
                return ((str,length vs,length inh),[(reverse vs,inh)])
+  
   m <- case res of
     Ok m    -> return m
     Bad msg -> fail msg
 
   forM_ (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
     putStrLn ""
-    print (ppTerm Unqualified 0 t0)
+   -- print (ppTerm Unqualified 0 t0)
 
-    forM_ dataset $ \(vs,inh) ->
-      print (hsep (map (\(_,t,_) -> ppTerm Unqualified 10 t) vs) <+> pp '|' <+>
-                                    hsep (punctuate ";" (map (\(t1,t2,ty) -> pp t1 <> pp '=' <> pp t2 <+> pp ':' <+> pp ty) inh)))
+    --forM_ dataset $ \(vs,inh) ->
+    --  print (hsep (map (\(_,t,_) -> ppTerm Unqualified 10 t) vs) <+> pp '|' <+>
+    --                                hsep (punctuate ";" (map (\(t1,t2,ty) -> pp t1 <> pp '=' <> pp t2 <+> pp ':' <+> pp ty) inh)))
 
     let (accuracy,_,t) = instantiate dim_dataset dataset t0 []
     if dim_inh > 0 && accuracy > stopping
       then do putStrLn ""
               putStrLn ("=== "++show accuracy)
+              let C _ t' = t
+              let nountypes = nountypes ++ nounFun (getIdent t') (map (\(LIdent i, _) -> i) nTs)
+              putStrLn (show nountypes)
               print (pp t)
+              
       else let types = map (\(_,_,ty)->ty) (fst (head dataset))
                res   = (reverse . sortOn (\(acc,_,_)->acc))
                           (map (\varIndex ->
@@ -84,10 +94,22 @@ learn cnc gr mapping smarts trees = do
                    | null rest || accuracy > stopping -> do
                          putStrLn ""
                          putStrLn ("=== "++show accuracy)
+                        -- let nountypes =  nounFun t (map (\(LIdent i, _) -> i) nTs) ++ nountypes
+                      --   putStrLn (show nountypes)
                          print (pp t)
                    | otherwise ->
                          cross_breed dim_dataset dataset t0 subst0 rest
+                         
+
   where
+    nounFun t inp | t `elem` inp = [t]
+    nounFun _ _ = []
+
+    getIdent (S s _) = getIdent s
+    getIdent (P (Vr _) (LIdent i)) = i
+
+ 
+
     stopping = 0.95
 
     buildStr s []     f = return (Empty,s)
@@ -143,6 +165,7 @@ learn cnc gr mapping smarts trees = do
        in if null rest || accuracy > stopping
             then do putStrLn ""
                     putStrLn ("=== "++show accuracy)
+                    --let nountypes =  nountypes ++ nounFun t (map (\(LIdent i, _) -> i) nTs)
                     print (pp t)
             else cross_breed dim_dataset dataset t0 subst0'' rest
 
@@ -258,7 +281,8 @@ freshVar env ty = fresh (letter ty) 1
     letter (QC (_,c)) =
       convert (showIdent c)
     letter (RecType xs) =
-      case [cat | (l,_) <- xs, Just cat <- [isLockLabel l]] of
+      --case [cat | (l,_) <- xs, Just cat <- [isLockLabel l]] of
+      case [id | (LIdent id, _) <- xs, isLockLabel (LIdent id)] of
         [cat] -> convert (showRawIdent cat)
         _     -> "v"
     letter _ = "v"

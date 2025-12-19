@@ -1,24 +1,30 @@
 import CodeGen
-
+ 
+ --     g = forms.g ;
+ --     mayben=forms.mayben ;
+ --     anim = forms.anim ;
+ --     rel = forms.rel ;
+ --     rt = forms.rt ;
 mapping =
-  [ (Left (rawIdentS "count_form"),               ("Number","Count"))
-  , (Left (rawIdentS "vocative"),                 ("Case","Voc"))
-  , (Left (rawIdentS "rel"),                      ("Relative","Yes"))
-  , (Left (rawIdentS "adverb"),                   ("Adverb","Yes"))
-  , (Right (identS "Number",identS "Sg"),         ("Number","Sing"))
+  [ 
+    (Right (identS "Number",identS "Sg"),         ("Number","Sing"))
   , (Right (identS "Number",identS "Pl"),         ("Number","Plur"))
   , (Right (identS "GenNum",identS "GSg"),        ("Number","Sing"))
   , (Right (identS "GenNum",identS "GPl"),        ("Number","Plur"))
   , (Right (identS "Gender",identS "Masc"),       ("Gender","Masc"))
   , (Right (identS "Gender",identS "Fem"),        ("Gender","Fem"))
   , (Right (identS "Gender",identS "Neuter"),     ("Gender","Neut"))
-  , (Right (identS "Species",identS "Indef"),     ("Definite","Ind"))
-  , (Right (identS "Species",identS "Def"),       ("Definite","Def"))
-  , (Right (identS "Distance",identS "Proximal"), ("Distance","Proximal"))
-  , (Right (identS "Distance",identS "Distal"),   ("Distance","Distal"))
-  , (Right (identS "NRelType",identS "AdvMod"),   ("RelType","Adv"))
-  , (Right (identS "NRelType",identS "AdjMod"),   ("RelType","Adj"))
-  , (Right (identS "NRelType",identS "Pref"),     ("RelType","Pref"))
+  , (Right (identS "Str",identS "snom"),          ("Case","Nom"))
+  , (Right (identS "Str",identS "sgen"),           ("Case","Gen"))
+  , (Right (identS "Str",identS "sdat"),           ("Case","Dat"))
+  , (Right (identS "Str",identS "sacc"),          ("Case","Acc"))
+  , (Right (identS "Str",identS "sins"),          ("Case","Ins"))
+  , (Right (identS "Str",identS "sprep"),          ("Case","Loc"))
+  , (Right (identS "Str",identS "sptv"),          ("Case","Par"))
+  --, (Right (identS "Case",identS "Loc"),          ("Case","Loc"))
+  , (Right (identS "Case",identS "VocRus"),       ("Case","Voc"))
+  , (Right (identS "Animacy",identS "Animate"),   ("Animacy","Anim"))
+  , (Right (identS "Animacy",identS "Inanimate"), ("Animacy","Inam"))
   ]
 
 main = do
