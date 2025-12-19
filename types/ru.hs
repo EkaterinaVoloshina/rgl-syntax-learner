@@ -27,6 +27,10 @@ mapping =
   , (Right (identS "Animacy",identS "Inanimate"), ("Animacy","Inam"))
   ]
 
+  C (S (S (P (Vr (IC (Id {rawId2utf8 = "ap"}))) 
+  (LIdent (Id {rawId2utf8 = "s"}))) (QC (IC (Id {rawId2utf8 = "ResMkd"}),IC (Id {rawId2utf8 = "Indef"})))) (QC (IC (Id {rawId2utf8 = "ResMkd"}),IC (Id {rawId2utf8 = "GPl"}))))
+   (P (Vr (IC (Id {rawId2utf8 = "cn"}))) (LIdent (Id {rawId2utf8 = "count_form"})))
+
 main = do
   (cnc,gr) <- loadGrammar "../../gf-rgl/src/russian/LangRus.gf"
   trees <- readCONLL "../SUD_Russian-SynTagRus"
