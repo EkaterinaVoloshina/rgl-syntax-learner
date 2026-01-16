@@ -33,9 +33,12 @@ type Types = Map.Map String [Label]
 learn cnc gr mapping smarts trees = do
   a_ty <- lookupResDef gr (cnc,identS "A")
   n_ty <- lookupResDef gr (cnc,identS "N")
+  print n_ty
+  print (pp n_ty)
   let RecType nTs = n_ty
+  let RecType aTs = a_ty
   let nountypes = []
-  print nTs
+  
   let ap = identS "ap"
       cn = identS "cn"
       patts = do  -- query edges matching AdjCN
@@ -64,7 +67,7 @@ learn cnc gr mapping smarts trees = do
     Ok m    -> return m
     Bad msg -> fail msg
 
-  forM_ (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
+  fieldsM <- forM (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
     putStrLn ""
    -- print (ppTerm Unqualified 0 t0)
 
@@ -73,13 +76,16 @@ learn cnc gr mapping smarts trees = do
     --                                hsep (punctuate ";" (map (\(t1,t2,ty) -> pp t1 <> pp '=' <> pp t2 <+> pp ':' <+> pp ty) inh)))
 
     let (accuracy,_,t) = instantiate dim_dataset dataset t0 []
+    
     if dim_inh > 0 && accuracy > stopping
       then do putStrLn ""
               putStrLn ("=== "++show accuracy)
-              let C _ t' = t
-              let nountypes = nountypes ++ nounFun (getIdent t') (map (\(LIdent i, _) -> i) nTs)
-              putStrLn (show nountypes)
+              
+              print (t)
               print (pp t)
+              return (getIdent (unpackT t))
+              
+              
               
       else let types = map (\(_,_,ty)->ty) (fst (head dataset))
                res   = (reverse . sortOn (\(acc,_,_)->acc))
@@ -94,21 +100,53 @@ learn cnc gr mapping smarts trees = do
                    | null rest || accuracy > stopping -> do
                          putStrLn ""
                          putStrLn ("=== "++show accuracy)
-                        -- let nountypes =  nounFun t (map (\(LIdent i, _) -> i) nTs) ++ nountypes
-                      --   putStrLn (show nountypes)
-                         print (pp t)
-                   | otherwise ->
+                         return (getIdent (unpackT t))
+                         
+                   | otherwise -> do
                          cross_breed dim_dataset dataset t0 subst0 rest
                          
+  print (concat fieldsM)
+  let keepN = filterFields cn (getFields nTs) (concat fieldsM)
+  let keepA = filterFields ap (getFields aTs) (concat fieldsM)
+
+  let positA = getPosFun "a" keepA
+  let usen = getPosFun "n" keepN
+
+  print (pp usen)
+
+  print (pp positA)
+
+  let lincatCN = RecType (filter (\(LIdent idx, _) -> showRawIdent idx `elem` keepN) nTs)
+  print (pp lincatCN)
+         
 
   where
-    nounFun t inp | t `elem` inp = [t]
-    nounFun _ _ = []
+    -- | helper functions to collect information about used fields
 
-    getIdent (S s _) = getIdent s
-    getIdent (P (Vr _) (LIdent i)) = i
+    getPosFun pos [a] = Vr (identS pos)
+    getPosFun pos kTs = R (map (\x -> (LIdent (rawIdentS x), (Nothing, P (Vr (identS pos)) (LIdent (rawIdentS x))))) kTs)
 
- 
+    filterFields cl t inp = filter (\x -> (showIdent cl, x) `elem` inp) t
+
+    getFields ts = map (\(LIdent idx, _) -> showRawIdent idx) ts
+
+    getIdent (C s1 s2) = getIdent s1 ++ getIdent s2
+    getIdent (S s1@(S _ _) s2@(S _ _)) = getIdent s1 ++ getIdent s2
+    getIdent (S s@(S _ _) _) = getIdent s
+    getIdent (S _ s@(S _ _)) = getIdent s
+    getIdent (S _ s@(P _ _)) = getIdent s
+    getIdent (S s@(P _ _) _) = getIdent s
+    getIdent (P (Vr idx) (LIdent field)) = [(showIdent idx, showRawIdent field)]
+    getIdent (S (T _ t) _) = concat (map getTerm t)
+    getIdent _  = []
+
+    getTerm (PP _ _, s@(S _ _)) = getIdent s
+    getTerm (PP _ pp, _) = []
+    
+    unpackT (T _ ((_, c@(C _ _)):ts)) = c
+    unpackT (T _ ((_, t@(T _ _)):ts)) = unpackT t
+    unpackT c@(C _ _) = c
+
 
     stopping = 0.95
 
@@ -165,8 +203,9 @@ learn cnc gr mapping smarts trees = do
        in if null rest || accuracy > stopping
             then do putStrLn ""
                     putStrLn ("=== "++show accuracy)
-                    --let nountypes =  nountypes ++ nounFun t (map (\(LIdent i, _) -> i) nTs)
+                    print t
                     print (pp t)
+                    return $ getIdent (unpackT t)
             else cross_breed dim_dataset dataset t0 subst0'' rest
 
 
