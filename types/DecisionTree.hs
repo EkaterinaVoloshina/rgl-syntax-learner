@@ -29,6 +29,15 @@ instance Functor (DecisionTree n a) where
   fmap f (Decision  n proj children)     = Decision  n proj (fmap (fmap f) children)
   fmap f (DecisionC n proj k left right) = DecisionC n proj k (fmap f left) (fmap f right)
 
+instance Applicative (DecisionTree n a) where
+  pure x = Leaf x 0
+  (Leaf f _) <*> dt = fmap f dt
+  (Decision n proj children) <*> dt = Decision n proj (fmap (flip (<*>) dt) children)
+
+instance Monad  (DecisionTree n a) where
+  (Leaf x _) >>= f = f x
+  (Decision n proj children) >>= f = Decision n proj (fmap (flip (>>=) f) children)
+
 data Attribute n a
   = forall r . Ord r => A {             -- ^ A categorial attribute
        aName   :: n r,                  -- ^ the attributes name, used for visualization in drawDecisionTree
