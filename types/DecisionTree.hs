@@ -1,10 +1,11 @@
-module DecisionTree (build, buildC, predict, predict', drawDecisionTree,
+module DecisionTree (build, buildC, buildD, predict, predict', drawDecisionTree, values,
                      Attribute(..),
                      DecisionTree(..)) where
 
 import Data.Maybe (fromJust)
 import Data.List hiding (partition)
 import Data.Functor.Contravariant
+import qualified Data.Set as Set
 import qualified Data.Map as Map
 
 -- | The type for a DecisionTree
@@ -33,7 +34,7 @@ data Attribute n a
        aName   :: n r,                  -- ^ the attributes name, used for visualization in drawDecisionTree
        aProj   :: a -> r                -- ^ a projection which extracts the value of the attribute from the input
     }
-  | forall r . Ord r => AC {   -- ^ A continuous attribute
+  | forall r . Ord r => AC {            -- ^ A continuous attribute
        aName   :: n r,
        aProj   :: a -> r
     }
@@ -102,6 +103,35 @@ buildC atts dataset =
                                   right= right
                                 })
 
+-- | Build a DecisionTree from the given training set. The number in the result is the accuracy.
+buildD :: Ord b => [Attribute n a] -> [(a,[b])] -> DecisionTree n a [b]
+buildD atts []      = error "Cannot learn without data"
+buildD atts dataset = build dataset
+  where
+    build dataset =
+      case bestAttributeD dataset atts of
+        (0,  _         ) -> let bs = map (\(_,b)->(-length b,b)) dataset
+                                dominantLabel = snd (head (sortOn fst bs))
+                                total = Set.size (Set.fromList (concatMap snd bs))
+                                den   = - sum (map fst bs)
+                            in Leaf dominantLabel (fromIntegral den / fromIntegral total)
+        (inf,P n proj p) -> let children = Map.map build p -- recursivly build the children
+                            in Decision {
+                                  name     = n,
+                                  proj     = proj,
+                                  children = children
+                               }
+        (inf,PC n proj k l r)
+                         -> let left  = build l -- recursivly build the children
+                                right = build r -- recursivly build the children
+                            in DecisionC {
+                                  name = n,
+                                  proj = proj,
+                                  key  = k,
+                                  left = left,
+                                  right= right
+                               }
+
 -- | Predicts the result for a given input
 predict :: DecisionTree n a b -> a -> Maybe b
 predict t a = fmap fst (predict' t a)
@@ -137,6 +167,13 @@ drawDecisionTree showName showValue showResult = unlines . draw
 
     shift first other = zipWith (++) (first : repeat other)
 
+values :: DecisionTree n a b -> [b]
+values dt = traverse dt []
+  where
+    traverse (Leaf x _) xs = x:xs
+    traverse (Decision  n proj children) xs = Map.foldr traverse xs children
+    traverse (DecisionC n proj k l r) xs = traverse l (traverse r xs)
+
 data Partition n a b
   = forall r . Ord r => P  (n r) (a -> r) (Map.Map r [(a,b)])
   | forall r . Ord r => PC (n r) (a -> r) r [(a,b)] [(a,b)]
@@ -168,6 +205,11 @@ avgDeviation xs = (a,sqrt (sum2 / len))
     compute2 sum (x:xs) = compute2 (sum+square (x-a)) xs
 
     square x = x*x
+
+density :: Ord b => [[b]] -> Double
+density bs = fromIntegral (sum (map length bs)) / fromIntegral total
+  where
+    total = Set.size (Set.fromList (concat bs))
 
 -- we want to count how many Data we have for each label. Thus we group it with 1 as 
 -- singleton value and add 1 whenever we find another Datum with the same label       
@@ -202,12 +244,37 @@ partition dataset attr =
     total_ent    = entropy (counts (map snd dataset))
     split_ent xs = (fromIntegral (length xs) / size) * entropy (counts (map snd xs))
 
-
-
 -- | How much information does this Attribute give us for the given Dataset.
 -- It is defined as 
 --
 -- entropy(set) - sum p_i * entropy {dat_i | dat has value i for attribute a}
+partitionD :: Ord b =>  [(a,[b])]         -- ^ the data
+           -> Attribute n a             -- ^ the attribute
+           -> (Double,Partition n a [b])  -- ^ the information and the partition
+partitionD dataset attr =
+  case attr of
+    A  n project -> let p   = groupWith (project.fst) (:[]) (++) dataset
+                        inf | Map.null p = 0
+                            | otherwise  = total_den - sum (map split_den (Map.elems p))
+                    in (inf,P n project p)
+    AC n project -> let p   = groupWith (project.fst) (:[]) (++) dataset
+                        ps  = split [] (Map.toList p)
+
+                        split xs []            = []
+                        split xs ((k,ys):rest) =
+                          let pre  = ys++xs
+                              post = concatMap snd rest
+                          in PC n project k pre post : split pre rest
+
+                    in (head.sortOn negatedInf) [(total_den - (split_den xs + split_den ys),p) | p@(PC _ _ k xs ys) <- ps]
+  where
+    size = fromIntegral $ length dataset
+
+    total_den    = density (map snd dataset)
+    split_den xs = (fromIntegral (length xs) / size) * density (map snd xs)
+
+
+
 partitionC :: [(a,Double)]                  -- ^ the data
            -> Attribute n a                 -- ^ the attribute
            -> (Double,Partition n a Double) -- ^ the information and the partition
@@ -232,13 +299,18 @@ partitionC dataset attr =
     total_dev    = snd (avgDeviation (map snd dataset))
     split_dev xs = (fromIntegral (length xs) / size) * snd (avgDeviation (map snd xs))
 
+
 -- | Return the attribute which gives us greatest gain in information
 bestAttribute :: Ord b => [(a,b)] -> [Attribute n a] -> (Double,Partition n a b)
 bestAttribute dataset = head.sortOn negatedInf . map (partition dataset)
 
--- | Return the attribute which gives us greatest gain in information
+-- | Return the attribute which gives us greatest reduction in standard deviation
 bestAttributeC :: [(a,Double)] -> [Attribute n a] -> (Double,Partition n a Double)
 bestAttributeC dataset = head.sortOn negatedInf . map (partitionC dataset)
+
+-- | Return the attribute which gives us greatest gain in information
+bestAttributeD :: Ord b => [(a,[b])] -> [Attribute n a] -> (Double,Partition n a [b])
+bestAttributeD dataset = head.sortOn negatedInf . map (partitionD dataset)
 
 negatedInf (inf,_) = -inf
 
