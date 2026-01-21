@@ -33,10 +33,25 @@ instance Applicative (DecisionTree n a) where
   pure x = Leaf x 0
   (Leaf f _) <*> dt = fmap f dt
   (Decision n proj children) <*> dt = Decision n proj (fmap (flip (<*>) dt) children)
+  (DecisionC n proj k left right) <*> dt = DecisionC n proj k (left <*> dt) (right <*> dt)
 
-instance Monad  (DecisionTree n a) where
+instance Monad (DecisionTree n a) where
   (Leaf x _) >>= f = f x
   (Decision n proj children) >>= f = Decision n proj (fmap (flip (>>=) f) children)
+  (DecisionC n proj k left right) >>= f = DecisionC n proj k (left >>= f) (right >>= f)
+
+instance Foldable (DecisionTree n a) where
+  foldMap f (Leaf x _) = f x
+  foldMap f (Decision n proj children) = foldMap (foldMap f) children
+  foldMap f (DecisionC n proj k left right) = foldMap f left `mappend` foldMap f right
+
+  foldr f y (Leaf x _) = f x y
+  foldr f y (Decision n proj children) = foldr (flip (foldr f)) y children
+  foldr f y (DecisionC n proj k left right) = foldr f (foldr f y right) left
+
+  foldl f x (Leaf y _) = f x y
+  foldl f x (Decision n proj children) = foldl (foldl f) x children
+  foldl f x (DecisionC n proj k left right) = foldl f (foldl f x left) right
 
 data Attribute n a
   = forall r . Ord r => A {             -- ^ A categorial attribute
