@@ -192,7 +192,7 @@ data Partition n a b
 --
 -- the Entropy is defined as: sum (p_i * log_2 p_i)
 -- where p_i = |{ x | x has Label i}|/|Dataset|
-entropy :: Ord b => Map.Map b Int -> Double
+entropy :: Map.Map b Int -> Double
 entropy cs = Map.foldr help 0 cs
   where
     n = fromIntegral $ sum cs
