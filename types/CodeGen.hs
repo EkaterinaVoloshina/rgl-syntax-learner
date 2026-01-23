@@ -7,10 +7,12 @@ module CodeGen(readCONLL,Node(..),ppNode,drawTree,
 
 import Prelude hiding ((<>))
 import GF.Infra.Ident
+--import GF.Infra.Location
 import GF.Infra.Option
 import GF.Data.Operations
 import GF.Text.Pretty hiding (empty)
 import GF.Grammar.Lookup
+--import GF.Grammar.Parser(runP)
 import GF.Grammar.Printer
 import GF.Grammar.Predef
 import GF.Grammar.Grammar hiding (Rule(..))
@@ -20,6 +22,7 @@ import GF.Compile
 import System.FilePath
 import System.Directory
 import Data.Tree
+import Data.Maybe hiding (fromList)
 import Data.Char(toLower)
 import Data.List (sortOn,mapAccumL,partition)
 import Control.Monad
@@ -30,105 +33,171 @@ import DecisionTree
 
 type Types = Map.Map String [Label]
 
+-- mapping from UD to GF
+posmap = Map.fromList ([("NOUN", "N"), ("ADJ", "A"), ("ADV", "Adv"), ("DET", "Det"), ("ADP", "Prep")])
+fun2Type = Map.fromList([("AdjCN", ("cn", "ap")), ("AdAP", ("ada", "adj")), ("AdvAP", ("ap", "adv")), ("AdvCN", ("cn", "adv")), ("PrepNP", ("prep", "np"))])
+
+funsAll = [("AdjCN", (("NOUN", Nothing),("ADJ", Just "mod"))),
+         ("AdAP",(("ADJ", Nothing),("ADV", Just "mod"))),
+         ("AdvAP",(("ADJ", Nothing),("NOUN", Just "mod"))),
+        -- ["DetAP",(("ADJ", Nothing),("DET", Just "det@adj")), ()],
+         ("PrepNP", (("ADP", Nothing), ("NOUN", Just "comp:obj"))),
+         ("AdvCN",(("NOUN", Nothing), ("NOUN", Just "mod")))] -- preposition: empty or existing
+         -- TODO: check how it matches deep dependencies
+         -- TODO
+
+-- keep results of the previous functions 
+
 learn cnc gr mapping smarts trees = do
-  a_ty <- lookupResDef gr (cnc,identS "A")
-  n_ty <- lookupResDef gr (cnc,identS "N")
-  print n_ty
-  print (pp n_ty)
-  let RecType nTs = n_ty
-  let RecType aTs = a_ty
-  let nountypes = []
-  
-  let ap = identS "ap"
-      cn = identS "cn"
-      patts = do  -- query edges matching AdjCN
-         t <- trees
-         (n1@(_,_,"NOUN",_,_),n2@(_,_,"ADJ",_,"mod")) <- edges t
-         return [(n1,Vr cn,n_ty),(n2,Vr ap,a_ty)]
-      cfg = Config [(Vr ap,a_ty),(Vr cn,n_ty)] -- argument types
-                   patts                       -- matching patterns
-                   mapping
-                   smarts
 
-  -- mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
+  allFs <- forM funsAll $ \funs -> do 
+    let (name, fun) = funs
+    let args = fromJust (Map.lookup name fun2Type)
+    putStrLn ("== " ++ name ++ " ==" )
 
-  let res = fmap (Map.fromListWith (++)) $ runGenM $ do
-               patt <- anyOf (patterns cfg)
-
-               inh <- runGenM $ do
-                        ((_,_,_,morpho,_),t,ty) <- anyOf patt
-                        findInh gr cfg morpho t ty
-
-               (str,vs) <- buildStr [] (sortOn (\((id,_,_,_,_),_,_)->id) patt)
-                                       (\vs ((_,_,_,morpho,_),t,ty) -> findStr gr cfg morpho vs t ty)
-               return ((str,length vs,length inh),[(reverse vs,inh)])
-  
-  m <- case res of
-    Ok m    -> return m
-    Bad msg -> fail msg
-
-  fieldsM <- forM (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
-    putStrLn ""
-   -- print (ppTerm Unqualified 0 t0)
-
-    --forM_ dataset $ \(vs,inh) ->
-    --  print (hsep (map (\(_,t,_) -> ppTerm Unqualified 10 t) vs) <+> pp '|' <+>
-    --                                hsep (punctuate ";" (map (\(t1,t2,ty) -> pp t1 <> pp '=' <> pp t2 <+> pp ':' <+> pp ty) inh)))
-
-    let (accuracy,_,t) = instantiate dim_dataset dataset t0 []
+    let pos1 = fromJust (Map.lookup (fst (snd fun)) posmap)
+    let pos2 = fromJust (Map.lookup (fst (fst fun)) posmap)
+    a_ty <- lookupResDef gr (cnc,identS pos1)
+    n_ty <- lookupResDef gr (cnc,identS pos2)
     
-    if dim_inh > 0 && accuracy > stopping
-      then do putStrLn ""
-              putStrLn ("=== "++show accuracy)
-              
-              print (t)
-              print (pp t)
-              return (getIdent (unpackT t))
-              
-              
-              
-      else let types = map (\(_,_,ty)->ty) (fst (head dataset))
-               res   = (reverse . sortOn (\(acc,_,_)->acc))
-                          (map (\varIndex ->
-                                   let var      = freshVar [] (types !! varIndex)
-                                       subst0   = [(varIndex+1,Vr var)]
-                                       dataset' = map (selectVars subst0) dataset
-                                   in instantiate dim_dataset dataset' t0 subst0)
-                               [0..dim_dataset-1])
-           in case res of
-                ((accuracy,subst0,t):rest)
-                   | null rest || accuracy > stopping -> do
-                         putStrLn ""
-                         putStrLn ("=== "++show accuracy)
-                         return (getIdent (unpackT t))
-                         
-                   | otherwise -> do
-                         cross_breed dim_dataset dataset t0 subst0 rest
-                         
-  print (concat fieldsM)
-  let keepN = filterFields cn (getFields nTs) (concat fieldsM)
-  let keepA = filterFields ap (getFields aTs) (concat fieldsM)
+    let RecType nTs = n_ty
+    let RecType aTs = a_ty
+    let nountypes = []
+    -- prependModule
+    
+    let ap = identS (snd args)
+        cn = identS (fst args)
+        patts = do  -- query edges matching AdjCN
+          t <- trees
+          (n1, n2) <- filter (\e -> matchEdges fun e) (edges t)
+          return [(n1,Vr cn,n_ty),(n2,Vr ap,a_ty)]
+        
+        cfg = Config [(Vr ap,a_ty),(Vr cn,n_ty)] -- argument types
+                    patts                       -- matching patterns
+                    mapping
+                    smarts
 
-  let positA = getPosFun "a" keepA
-  let usen = getPosFun "n" keepN
+    -- mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
 
-  print (pp usen)
+    let res = fmap (Map.fromListWith (++)) $ runGenM $ do
+                patt <- anyOf (patterns cfg)
 
-  print (pp positA)
+                inh <- runGenM $ do
+                          ((_,_,_,morpho,_),t,ty) <- anyOf patt
+                          findInh gr cfg morpho t ty
 
-  let lincatCN = RecType (filter (\(LIdent idx, _) -> showRawIdent idx `elem` keepN) nTs)
-  print (pp lincatCN)
+                (str,vs) <- buildStr [] (sortOn (\((id,_,_,_,_),_,_)->id) patt)
+                                        (\vs ((_,_,_,morpho,_),t,ty) -> findStr gr cfg morpho vs t ty)
+                return ((str,length vs,length inh),[(reverse vs,inh)])
+    
+    m <- case res of
+      Ok m    -> return m
+      Bad msg -> fail msg
+    
+
+    fieldsM <- forM (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
+      putStrLn ""
+    -- print (ppTerm Unqualified 0 t0)
+
+     -- examples
+      --forM_ dataset $ \(vs,inh) ->
+      --  print (hsep (map (\(_,t,_) -> ppTerm Unqualified 10 t) vs) <+> pp '|' <+>
+      --                                hsep (punctuate ";" (map (\(t1,t2,ty) -> pp t1 <> pp '=' <> pp t2 <+> pp ':' <+> pp ty) inh)))
+
+      let (accuracy,_,t) = instantiate dim_dataset dataset t0 []
+      
+      if dim_inh > 0 && accuracy > stopping
+        then do putStrLn ""
+                putStrLn ("=== "++show accuracy)
+                
+                print (pp t)
+                return (t, getIdent (unpackT t))
+                
+                
+                
+        else let types = map (\(_,_,ty)->ty) (fst (head dataset))
+                 res   = (reverse . sortOn (\(acc,_,_)->acc))
+                            (map (\varIndex ->
+                                    let var      = freshVar [] (types !! varIndex)
+                                        subst0   = [(varIndex+1,Vr var)]
+                                        dataset' = map (selectVars subst0) dataset
+                                    in instantiate dim_dataset dataset' t0 subst0)
+                                [0..dim_dataset-1])
+            in case res of
+                  ((accuracy,subst0,t):rest)
+                    | null rest || accuracy > stopping -> do
+                          putStrLn ""
+                          putStrLn ("=== "++show accuracy)
+                          print (pp t)
+                          return (t, getIdent (unpackT t))
+                          
+                    | otherwise -> do
+                          cross_breed dim_dataset dataset t0 subst0 rest
+    let (trees, fsM) = unzip fieldsM 
+    if (null trees) then do
+      putStrLn "No examples of such construction"
+      return ([], [])
+    else do 
+      let keepN = filterFields cn (getFields nTs) (concat fsM)
+      let keepA = filterFields ap (getFields aTs) (concat fsM)
+      let lincatCN = RecType (filter (\(LIdent idx, _) -> showRawIdent idx `elem` (fst (unzip keepN))) nTs)
+      print (pp lincatCN)
+      -- get fields to be filled 
+      -- match with trees
+      -- if there exists something else make a new parameter?
+      if (length trees) == 1 then 
+        do 
+          let [tree] = trees
+          let f = CncFun (Nothing) (Just (L NoLoc (Abs Explicit ap (Abs Explicit cn tree)))) Nothing Nothing
+        
+          return ([(identS name, f)], [(showIdent cn, keepN), (showIdent ap, keepA)])
+        else do
+          let (tree:rest) = trees
+          let f = CncFun (Nothing) (Just (L NoLoc (Abs Explicit ap (Abs Explicit cn tree)))) Nothing Nothing
+        
+          return ([(identS name, f)], [(showIdent cn, keepN), (showIdent ap, keepA)])
+  let (fs, allArgs) = unzip allFs
+  let ffs = Map.fromListWith (++) (concat allArgs) -- all filtered fields
+  let keepA = fromJust (Map.lookup "ap" ffs)
+  let keepN = fromJust (Map.lookup "cn" ffs)
+
+
+  let positA = CncFun (Nothing) (Just (L NoLoc (getPosFun "a" keepA))) Nothing Nothing
+  let usen = CncFun (Nothing) (Just (L NoLoc (getPosFun "n" keepN))) Nothing Nothing
+  --print keepN
+
+  let allFunctions = concat fs ++ [(identS "UseN", usen), (identS "PositA", positA)]
+
+  let nounJudgms = Map.fromList allFunctions
+
+  let mod = ppModule Qualified (MN (identS "NounMkd"), ModInfo {jments = nounJudgms, msrc="", mstatus = MSComplete, mextend = [(MN (identS "ResMkd"), MIAll)], mwith=Nothing, mopens=[], mexdeps=[], mflags = noOptions, mseqs = Nothing, mtype = MTConcrete (MN  (identS "Noun"))})
+  print (pp mod)
+
+  writeFile "NounMkd.gf" (show (pp mod))
+      
+    
+      
+  
          
 
   where
     -- | helper functions to collect information about used fields
 
-    getPosFun pos [a] = Vr (identS pos)
-    getPosFun pos kTs = R (map (\x -> (LIdent (rawIdentS x), (Nothing, P (Vr (identS pos)) (LIdent (rawIdentS x))))) kTs)
+    --getPosFun pos [a] = Vr (identS pos)
+    getPosFun pos kTs = Abs Explicit (identS pos) (R (map (\(x,t) -> mapWithType x t pos) kTs))
 
-    filterFields cl t inp = filter (\x -> (showIdent cl, x) `elem` inp) t
+    mapWithType x t@(Table _ _) pos = (LIdent (rawIdentS x), (Nothing, T TRaw [(lengthTable t (P (Vr (identS pos)) (LIdent (rawIdentS x))))]))
+      --(LIdent (rawIdentS x), (Nothing, P (Vr (identS pos)) (LIdent (rawIdentS x))))
+    mapWithType x _ pos = (LIdent (rawIdentS x), (Nothing, P (Vr (identS pos)) (LIdent (rawIdentS x))))
 
-    getFields ts = map (\(LIdent idx, _) -> showRawIdent idx) ts
+   ---lengthTable (Table _ t@(Table _ _)) idx = (PW, T TRaw [(lengthTable t idx)])
+    lengthTable _ idx = (PW, idx)
+
+    
+
+    filterFields cl t inp = filter (\(x, y) -> (showIdent cl, x) `elem` inp) t
+
+    getFields ts = map (\(LIdent idx, y) -> (showRawIdent idx, y)) ts
 
     getIdent (C s1 s2) = getIdent s1 ++ getIdent s2
     getIdent (S s1@(S _ _) s2@(S _ _)) = getIdent s1 ++ getIdent s2
@@ -205,7 +274,7 @@ learn cnc gr mapping smarts trees = do
                     putStrLn ("=== "++show accuracy)
                     print t
                     print (pp t)
-                    return $ getIdent (unpackT t)
+                    return $ (t, getIdent (unpackT t))
             else cross_breed dim_dataset dataset t0 subst0'' rest
 
 
@@ -252,6 +321,11 @@ readCONLL fpath = do
         toAttr s =
           case break (=='=') s of
             (x,'=':y) -> (x,y)
+
+matchEdges ((p1, Nothing), (p2, Just r2)) (n1@(_,_,pos1,_,_),n2@(_,_,pos2,_,rel2))    = p1 == pos1 && p2 == pos2 && r2 == rel2               
+matchEdges ((p1, Just r1), (p2, Just r2)) (n1@(_,_,pos1,_,rel1),n2@(_,_,pos2,_,rel2)) = p1 == pos1 && p2 == pos2 && r1 == rel2 && r2 == rel2 
+matchEdges ((p1, Just r1), (p2, Nothing)) (n1@(_,_,pos1,_,rel1),n2@(_,_,pos2,_,_))    = p1 == pos1 && p2 == pos2 && r1 == rel1              
+matchEdges ((p1, Nothing), (p2, Nothing)) (n1@(_,_,pos1,_,_),n2@(_,_,pos2,_,_))       = p1 == pos1 && p2 == pos2                             
 
 nodes t = collect t []
   where
@@ -302,6 +376,7 @@ findParam gr cfg morpho (QC q) = do
   morpho <- case [v | (Right (_,con),v) <- mapping cfg, con==snd q] of
               (v:_) -> pop v morpho
               _     -> return morpho
+  
   foldM (\t (_,_,ty) -> fmap (App t) (findParam gr cfg morpho ty)) (QC q) ctxt
 
 findInh gr cfg morpho t ty@(QC q) = do
