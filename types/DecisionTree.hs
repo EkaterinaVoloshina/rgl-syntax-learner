@@ -56,6 +56,7 @@ instance Foldable (DecisionTree n a) where
 instance Traversable (DecisionTree n a) where
   traverse f (Leaf x inf) = fmap (flip Leaf inf) (f x)
   traverse f (Decision n proj children) = fmap (Decision n proj) (traverse (traverse f) children)
+  traverse f (DecisionC n proj k left right) = pure (DecisionC n proj k) <*> traverse f left <*> traverse f right
 
 data Attribute n a
   = forall r . Ord r => A {             -- ^ A categorial attribute
