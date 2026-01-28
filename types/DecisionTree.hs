@@ -53,6 +53,10 @@ instance Foldable (DecisionTree n a) where
   foldl f x (Decision n proj children) = foldl (foldl f) x children
   foldl f x (DecisionC n proj k left right) = foldl f (foldl f x left) right
 
+instance Traversable (DecisionTree n a) where
+  traverse f (Leaf x inf) = fmap (flip Leaf inf) (f x)
+  traverse f (Decision n proj children) = fmap (Decision n proj) (traverse (traverse f) children)
+
 data Attribute n a
   = forall r . Ord r => A {             -- ^ A categorial attribute
        aName   :: n r,                  -- ^ the attributes name, used for visualization in drawDecisionTree
