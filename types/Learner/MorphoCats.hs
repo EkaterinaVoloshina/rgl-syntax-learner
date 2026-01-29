@@ -5,7 +5,7 @@ import Control.Monad
 import System.FilePath
 import System.Directory
 import System.Console.GetOpt
-import Data.Char (isSpace, toUpper)
+import Data.Char (isSpace, isDigit, toUpper)
 import Data.Maybe (fromMaybe, fromJust, isNothing)
 import Data.List (sort,sortOn,intercalate,intersect,intercalate,mapAccumL)
 import qualified Data.Map.Strict as Map
@@ -119,7 +119,10 @@ readWiktionary cfg = do
 
 data ParamName a = ParamName Ident (a->Maybe Tag)
 
-learnMorphoCats cfg attrs rgl []                            = return rgl
+learnMorphoCats cfg attrs rgl []                            = do
+  let rgl' = rgl{rglRes=(rglRes rgl){jments=Map.mapWithKey fixParamName (jments (rglRes  rgl))}
+                }
+  return rgl'
 learnMorphoCats cfg attrs rgl ((pos,(tagsSet0,words)):rest) = do
   case lookupPOS pos of
     Just pos -> do putStrLn ("=== "++posTag pos)
@@ -245,6 +248,11 @@ genRes jments pos rs =
           (jments3,tys) = jmentsAndType jments2 pps
       in (jments3,Cn name' : tys)
 
+fixParamName id info@(ResParam (Just (L loc ps)) extra) =
+  case (reverse . takeWhile isDigit . reverse . showIdent) id of
+    [] -> info
+    x  -> ResParam (Just (L loc [(identS (showIdent p++x), pps) | (p,pps) <- ps])) extra
+fixParamName id info = info
 
 genCat jments pos =
   Map.insert (posCat pos) (CncCat (Just (noLoc (Cn (posOper pos)))) Nothing Nothing Nothing Nothing) jments
