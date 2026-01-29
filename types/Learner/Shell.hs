@@ -15,7 +15,7 @@ learnerMain cfg = do
     ("morpho-cats":args) -> withConfig cfg args Learner.MorphoCats.options Learner.MorphoCats.learn
 --    ("syntax":args)      -> MorphoCats.learn lang args
     _                    -> do hPutStrLn stderr "Synopsis:"
-                               hPutStrLn stderr (usageInfo (cfgIso2 cfg++" morpho-cats <options>") Learner.MorphoCats.options)
+                               hPutStrLn stderr (usageInfo (cfgLangName cfg++" morpho-cats <options>") Learner.MorphoCats.options)
 
 withConfig cfg args options f = do
   let (opts,nonopts,errs) = getOpt Permute options args
