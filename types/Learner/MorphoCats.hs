@@ -30,13 +30,12 @@ learn cfg = do
       tagsSets = toTagSets dict
   createDirectoryIfMissing True ("src" </> cfgLangName cfg)
   rgl <- readGrammar cfg
-  rgl <- learnMorphoCats cfg attrs rgl (Map.toList tagsSets)
+  rgl <- learnMorphoCats cfg attrs rgl{rglRes=(rglRes rgl){jments=Map.filter notParam (jments (rglRes rgl))}} (Map.toList tagsSets)
+  rgl <- learnWorstCase cfg rgl (Map.toList tagsSets)
   writeGrammar cfg rgl
   where
-    lang_abr =
-      case cfgIso3 cfg of
-        []     -> []
-        (c:cs) -> toUpper c:cs
+    notParam (ResParam _ _) = False
+    notParam _              = True
 
     toTagSets dict =
       Map.fromListWith combine [(pos, (Map.fromListWith (+) [(tags,1) | (tags,form) <- forms], [(word,tags,forms)])) | (word,pos,tags,forms) <- dict]
@@ -117,7 +116,7 @@ readWiktionary cfg = do
                       (x:xs) -> (c:x):xs
 
     updateTags es =
-      [(word,pos,tags,[(tags,form) | (tags0,form) <- forms, tags <- cfgUpdTags cfg tags0]) | (word,pos,tags,forms) <- es]
+      [(word,pos,tags,[(sort tags,form) | (tags0,form) <- forms, tags <- cfgUpdTags cfg tags0]) | (word,pos,tags,forms) <- es]
 
 
 data ParamName a = ParamName Ident (a->Maybe Tag)
@@ -126,6 +125,12 @@ learnMorphoCats cfg attrs rgl []                            = do
   let rgl' = rgl{rglRes=(rglRes rgl){jments=Map.mapWithKey fixParamName (jments (rglRes  rgl))}
                 }
   return rgl'
+  where
+    fixParamName id info@(ResParam (Just (L loc ps)) extra) =
+      case (reverse . takeWhile isDigit . reverse . showIdent) id of
+        [] -> info
+        x  -> ResParam (Just (L loc [(identS (showIdent p++x), pps) | (p,pps) <- ps])) extra
+    fixParamName id info = info
 learnMorphoCats cfg attrs rgl ((pos,(tagsSet0,words)):rest) = do
   case lookupPOS pos of
     Just pos -> do putStrLn ("=== "++posTag pos)
@@ -224,6 +229,40 @@ toPreType (Decision (ParamName name f) _ dts) =
                                               Nothing   -> Nothing
 
 
+learnWorstCase cfg rgl []                 = return rgl
+learnWorstCase cfg rgl ((pos,(_,_)):rest) =
+  case lookupPOS pos of
+    Nothing  -> learnWorstCase cfg rgl rest
+    Just pos -> case Map.lookup (posOper pos) (jments (rglRes rgl)) of
+                  Nothing -> learnWorstCase cfg rgl rest
+                  Just (ResOper Nothing (Just (L _ ty))) ->
+                             let mkPOS = identS ('m':'k':showIdent (posOper pos))
+                                 (t,t_ty) = type2term pos ty
+                                 rgl'  = rgl{rglRes=(rglRes rgl){jments=Map.insert mkPOS (ResOper (Just (noLoc t_ty)) (Just (noLoc t))) (jments (rglRes rgl))}}
+                             in learnWorstCase cfg rgl' rest
+  where
+    type2term pos ty =
+      let (i,t0) = type2term 0 ty
+          t      = foldr (Abs Explicit . f) t0 [0..i-1]
+          t_ty   = foldr (\i -> Prod Explicit identW (Sort cStr)) (Cn (posOper pos)) [0..i-1]
+      in (t,t_ty)
+      where
+        f i = identS ('f':show (i+1))
+
+        type2term i (Sort s)
+          | s == cStr  = (i+1,Vr (f i))
+        type2term i (Table ty1 ty2) =
+          let (i',cs) = mapAccumL (\i p -> let (i',t) = type2term i ty2 in (i',(p,t))) i (allParamPatts ty1)
+          in (i',T (TTyped ty1) cs)
+        type2term i (RecType rs) =
+          let (i',rs') = mapAccumL (\i (l,_,ty) -> let (i',t) = type2term i ty in (i',(l,(Nothing,t)))) i rs
+          in (i', R rs')
+
+    allParamPatts (Cn id) =
+      case Map.lookup id (jments (rglRes rgl)) of
+        Just (ResParam (Just (L _ ps)) _) -> [PC p args | (p,ctxt) <- ps,
+                                                          args <- sequence [allParamPatts ty | (_,_,ty) <- ctxt]]
+        Nothing -> []
 
 genRes jments pos rs =
   let (jments',rs') = mapAccumL (\jments (tags,pps) -> let (jments',tys) = jmentsAndType jments pps in (jments',(tags,tys))) jments rs
@@ -251,11 +290,6 @@ genRes jments pos rs =
           (jments3,tys) = jmentsAndType jments2 pps
       in (jments3,Cn name' : tys)
 
-fixParamName id info@(ResParam (Just (L loc ps)) extra) =
-  case (reverse . takeWhile isDigit . reverse . showIdent) id of
-    [] -> info
-    x  -> ResParam (Just (L loc [(identS (showIdent p++x), pps) | (p,pps) <- ps])) extra
-fixParamName id info = info
 
 genCat jments pos =
   Map.insert (posCat pos) (CncCat (Just (noLoc (Cn (posOper pos)))) Nothing Nothing Nothing Nothing) jments

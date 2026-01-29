@@ -43,7 +43,7 @@ pos_tags =
   ,POS "adv"  (identS "Adverb")       (identS "Adv")
   ,POS "conj" (identS "Conjunct")     (identS "Conj")
   ,POS "det"  (identS "Detm")         (identS "Det")
-  ,POS "intj" (identS "Interjection") (identS "Interj")
+  ,POS "intj" (identS "Intj")         (identS "Interj")
   ,POS "name" (identS "Name")         (identS "PN")
   ,POS "noun" (identS "Noun")         (identS "N")
   ,POS "prep" (identS "Preposition")  (identS "Prep")

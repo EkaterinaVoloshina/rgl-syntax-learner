@@ -22,22 +22,30 @@ data RGL
 
 readGrammar :: Config -> IO RGL
 readGrammar cfg = withStatus ("Writing grammar to "++fdir) $ do
-  res       <- loadModule (lang_module "Res" cfg) MTResource []
-  cat       <- loadModule (lang_module "Cat" cfg) (MTConcrete (moduleNameS "Cat")) [OSimple (moduleNameS (lang_module "Res" cfg))]
-  dict      <- loadModule (lang_module "Dict" cfg) (MTConcrete (moduleNameS (lang_module "Dict" cfg++"Abs"))) []
-  dictAbs   <- loadModule (lang_module "Dict" cfg++"Abs") MTAbstract []
-  paradigms <- loadModule (lang_module "Paradigms" cfg) MTResource []
-  return (RGL { rglRes = res
-              , rglCat = cat
-              , rglDict = dict
-              , rglDictAbs = dictAbs
-              , rglParadigms = paradigms
+  let resX       = moduleNameS (lang_module "Res" cfg)
+      catX       = moduleNameS (lang_module "Cat" cfg)
+      cat        = moduleNameS "Cat"
+      dictX      = moduleNameS (lang_module "Dict" cfg)
+      dictXAbs   = moduleNameS (lang_module "Dict" cfg++"Abs")
+      paradigmsX = moduleNameS (lang_module "Paradigms" cfg)
+      predef     = moduleNameS "Predef"
+
+  resM       <- loadModule resX MTResource [] []
+  catM       <- loadModule catX (MTConcrete cat) [] [OSimple resX]
+  dictM      <- loadModule dictX (MTConcrete dictXAbs) [(catX,MIAll)] [OSimple predef,OSimple resX]
+  dictAbsM   <- loadModule dictXAbs MTAbstract [(cat,MIAll)] []
+  paradigmsM <- loadModule paradigmsX MTResource [] []
+  return (RGL { rglRes = resM{jments=Map.filter notResValue (jments resM)}
+              , rglCat = catM
+              , rglDict = dictM
+              , rglDictAbs = dictAbsM
+              , rglParadigms = paradigmsM
               })
   where
     fdir = "src" </> cfgLangName cfg
 
-    loadModule mn mtype mopens = do
-      let fpath = fdir </> mn <.> "gf"
+    loadModule mn@(MN id) mtype mextend mopens = do
+      let fpath = fdir </> showIdent id <.> "gf"
       exist <- doesFileExist fpath
       if exist
         then do bs <- BS.readFile fpath
@@ -48,13 +56,16 @@ readGrammar cfg = withStatus ("Writing grammar to "++fdir) $ do
                          mtype = mtype,
                          mstatus = MSComplete,
                          mflags = noOptions,
-                         mextend = [],
+                         mextend = mextend,
                          mwith = Nothing,
                          mopens = mopens,
                          mexdeps = [],
                          msrc = fpath,
                          jments = Map.empty
                      })
+
+    notResValue (ResValue _ _) = False
+    notResValue _              = True
 
 writeGrammar :: Config -> RGL -> IO ()
 writeGrammar cfg rgl = withStatus ("Writing grammar to "++fdir) $ do
