@@ -1,4 +1,5 @@
-module DecisionTree (build, buildC, buildD, predict, predict', drawDecisionTree, values,
+module Learner.DecisionTree
+                    (build, buildC, buildD, predict, predict', drawDecisionTree, values,
                      Attribute(..),
                      DecisionTree(..)) where
 

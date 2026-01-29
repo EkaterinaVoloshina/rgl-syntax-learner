@@ -26,7 +26,7 @@ import Control.Monad
 import Control.Applicative hiding (Const)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
-import DecisionTree
+import Learner.DecisionTree
 
 learn cnc gr mapping smarts trees = do
   a_ty <- lookupResDef gr (cnc,identS "A")
@@ -217,7 +217,7 @@ split sep (c:cs)
 findStr gr cfg morpho vs t (Sort s)
   | s == cStr                  = return (t,vs)
 findStr gr cfg morpho vs t (RecType fs) = do
-  (l@(LIdent id),ty) <- anyOf fs
+  (l@(LIdent id),_,ty) <- anyOf fs
   morpho <- case [v | (Left lbl,v) <- mapping cfg, lbl==id] of
               (v:_) -> pop v morpho
               _     -> return morpho
@@ -246,7 +246,7 @@ findInh gr cfg morpho t ty@(QC q) = do
   v <- findParam gr cfg morpho ty
   return (t,v,ty)
 findInh gr cfg morpho t (RecType fs) = do
-  (l@(LIdent id),ty) <- anyOf fs
+  (l@(LIdent id),_,ty) <- anyOf fs
   morpho <- case [v | (Left lbl,v) <- mapping cfg, lbl==id] of
               (v:_) -> pop v morpho
               _     -> return morpho
@@ -258,7 +258,7 @@ freshVar env ty = fresh (letter ty) 1
     letter (QC (_,c)) =
       convert (showIdent c)
     letter (RecType xs) =
-      case [cat | (l,_) <- xs, Just cat <- [isLockLabel l]] of
+      case [cat | (l,_,_) <- xs, Just cat <- [isLockLabel l]] of
         [cat] -> convert (showRawIdent cat)
         _     -> "v"
     letter _ = "v"

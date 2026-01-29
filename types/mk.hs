@@ -1,4 +1,4 @@
-import CodeGen
+import Learner.Shell
 
 mapping =
   [ (Left (rawIdentS "count_form"),               ("Number","Count"))
@@ -21,7 +21,10 @@ mapping =
   , (Right (identS "NRelType",identS "Pref"),     ("RelType","Pref"))
   ]
 
-main = do
+main = learnerMain ((defaultConfig "mk" "mkd" "macedonian")
+                       {cfgTreebanks = ["SUD_Macedonian-MTB"]
+                       })
+{-
   (cnc,gr) <- loadGrammar "../../gf-rgl/src/macedonian/LangMkd.gf"
   trees <- readCONLL "../SUD_Macedonian-MTB/"
   mapM_ (putStrLn . drawTree . fmap (show . ppNode)) trees
@@ -29,3 +32,4 @@ main = do
   --genNum_ctxt <- fmap (fst . typeFormCnc) $ lookupResType gr genNum_q
    -- (Map.singleton (moduleNameS "ResMkd",identS "GenNum") [(genNum_q,genNum_ctxt)]) -- smart constructors
   learn cnc gr mapping noSmarts trees
+-}
