@@ -1,3 +1,4 @@
+{-# LANGUAGE LambdaCase #-}
 import Learner.Shell
 
 mapping =
@@ -22,7 +23,11 @@ mapping =
   ]
 
 main = learnerMain ((defaultConfig "mk" "mkd" "macedonian")
-                       {cfgTreebanks = ["SUD_Macedonian-MTB"]
+                       { cfgUpdTags   = \case
+                                           ["comparative"] -> [["indefinite","masculine","comparative"]]
+                                           ["superlative"] -> [["indefinite","masculine","superlative"]]
+                                           tags            -> [tags]
+                       , cfgTreebanks = ["SUD_Macedonian-MTB"]
                        })
 {-
   (cnc,gr) <- loadGrammar "../../gf-rgl/src/macedonian/LangMkd.gf"

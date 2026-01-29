@@ -10,6 +10,7 @@ data Config
       , cfgLangName :: String
       , cfgVerbose  :: Bool
       , cfgMinForms :: Int
+      , cfgUpdTags  :: [String] -> [[String]]
       , cfgTreebanks:: [String]
       }
 
@@ -19,6 +20,7 @@ defaultConfig iso2 iso3 name =
          , cfgLangName = name
          , cfgVerbose = False
          , cfgMinForms = 5
+         , cfgUpdTags = (:[])
          , cfgTreebanks = []
          }
 

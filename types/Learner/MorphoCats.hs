@@ -59,11 +59,11 @@ readWiktionary cfg = do
   exist <- doesFileExist fpath
   if exist
     then withStatus ("Reading "++toTitle (cfgLangName cfg)++" lexicon from Wiktionary") $ do 
-            es <- fmap (map toEntry . lines) $ readFile fpath
+            es <- fmap (updateTags . map toEntry . lines) $ readFile fpath
             length es `seq` return es
     else withStatus ("Extracting data from raw-wiktextract-data.jsonl.gz for "++cfgLangName cfg) $ do
             content <- fmap GZip.decompress (BS.readFile "../../rgl-learner/raw-wiktextract-data.jsonl.gz")
-            let es = extractEntries (BS.lines content) []
+            let es = updateTags (extractEntries (BS.lines content) [])
             writeFile fpath (unlines [intercalate "\t" (word:pos:intercalate ";" tags:concatMap (\(tags,form) -> [form,intercalate ";" tags]) forms) | (word,pos,tags,forms) <- es])
             return es
   where
@@ -116,6 +116,9 @@ readWiktionary cfg = do
                       []     -> [[c]]
                       (x:xs) -> (c:x):xs
 
+    updateTags es =
+      [(word,pos,tags,[(tags,form) | (tags0,form) <- forms, tags <- cfgUpdTags cfg tags0]) | (word,pos,tags,forms) <- es]
+
 
 data ParamName a = ParamName Ident (a->Maybe Tag)
 
@@ -126,7 +129,7 @@ learnMorphoCats cfg attrs rgl []                            = do
 learnMorphoCats cfg attrs rgl ((pos,(tagsSet0,words)):rest) = do
   case lookupPOS pos of
     Just pos -> do putStrLn ("=== "++posTag pos)
-                   let dts0 = iterateD [tags | (tags,count) <- Map.toList tagsSet0, count > cfgMinForms cfg, tags /= ["comparative"] && tags /= ["superlative"]]
+                   let dts0 = iterateD [tags | (tags,count) <- Map.toList tagsSet0, count > cfgMinForms cfg]
                        dts  = map (stack dts0) (iterate [tags | (tags,_) <- dts0])
                    when (cfgVerbose cfg) $
                      forM_ dts $ \(tags,dt) -> do
