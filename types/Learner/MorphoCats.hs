@@ -60,7 +60,7 @@ readWiktionary cfg = do
     then withStatus ("Reading "++toTitle (cfgLangName cfg)++" lexicon from Wiktionary") $ do 
             es <- fmap (updateTags . map toEntry . lines) $ readFile fpath
             length es `seq` return es
-    else withStatus ("Extracting data from raw-wiktextract-data.jsonl.gz for "++cfgLangName cfg) $ do
+    else withStatus ("Extracting data from raw-wiktextract-data.jsonl.gz for "++toTitle (cfgLangName cfg)) $ do
             content <- fmap GZip.decompress (BS.readFile "../../rgl-learner/raw-wiktextract-data.jsonl.gz")
             let es = updateTags (extractEntries (BS.lines content) [])
             writeFile fpath (unlines [intercalate "\t" (word:pos:intercalate ";" tags:concatMap (\(tags,form) -> [form,intercalate ";" tags]) forms) | (word,pos,tags,forms) <- es])
