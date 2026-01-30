@@ -89,7 +89,10 @@ readWiktionary cfg = do
                      tags <- valFromObj "tags" o
                      form <- valFromObj "form" o
                      return (sort tags,map wc form)
-          return (word,pos,sort tags,[(tags,form) | (tags,form) <- forms, form /= "-"])
+          return (word,pos,sort tags,[(tags,form) | (tags,form) <- forms
+                                                  , form /= "-" &&
+                                                    tags /= ["table-tags"] &&
+                                                    tags /= ["inflection-template"]])
 
         wc c | isSpace c = ' '
              | otherwise = c
