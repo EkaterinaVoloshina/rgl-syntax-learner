@@ -1,3 +1,4 @@
+import SyntaxLearner
 import CodeGen
 
 mapping =
@@ -23,9 +24,10 @@ mapping =
 
 main = do
   (cnc,gr) <- loadGrammar "../../gf-rgl/src/macedonian/LangMkd.gf"
+  --(cnc,gr) <- loadGrammar "../../gf-rgl/src/bulgarian/LangBul.gf"
   trees <- readCONLL "../SUD_Macedonian-MTB/"
   --mapM_ (putStrLn . drawTree . fmap (show . ppNode)) trees
   --let genNum_q = (moduleNameS "ResMkd",identS "genNum")
   --genNum_ctxt <- fmap (fst . typeFormCnc) $ lookupResType gr genNum_q
-   -- (Map.singleton (moduleNameS "ResMkd",identS "GenNum") [(genNum_q,genNum_ctxt)]) -- smart constructors
-  learn cnc gr mapping noSmarts trees
+  --  (Map.singleton (moduleNameS "ResMkd",identS "GenNum") [(genNum_q,genNum_ctxt)]) -- smart constructors
+  learnGrammar cnc gr mapping noSmarts trees

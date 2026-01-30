@@ -1,7 +1,10 @@
 import CodeGen
+import SyntaxLearner
 
 mapping =
-  [ (Right (identS "Number",identS "Sg"),         ("Number","Sing"))
+  [ 
+    (Left (rawIdentS "compar"),                   ("Degree","Compar"))
+  , (Right (identS "Number",identS "Sg"),         ("Number","Sing"))
   , (Right (identS "Number",identS "Pl"),         ("Number","Plur"))
   , (Right (identS "Case",identS "Nom"),          ("Case","Nom"))
   , (Right (identS "Case",identS "Acc"),          ("Case","Acc"))
@@ -17,4 +20,5 @@ mapping =
 main = do
   (cnc,gr) <- loadGrammar "../../gf-rgl/src/faroese/LangFao.gf"
   trees <- readCONLL "../SUD_Faroese-FarPaHC"
-  learn cnc gr mapping noSmarts trees
+  --print trees
+  learnGrammar cnc gr mapping noSmarts trees
