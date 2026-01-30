@@ -3,7 +3,10 @@ module CodeGen(readCONLL,Node(..),ppNode,drawTree,
                identS,Ident,
                rawIdentS,RawIdent,
                noSmarts,
-               learn) where
+               learn, query, getPosFun, 
+               getFun, getModule, matchFields,
+               combineTrees, getLang, mapPOS, getNewType, 
+               QueryPattern(..)) where
 
 import Prelude hiding ((<>))
 import GF.Infra.Ident
@@ -24,7 +27,7 @@ import System.Directory
 import Data.Tree
 import Data.Maybe hiding (fromList)
 import Data.Char(toLower)
-import Data.List (sortOn,mapAccumL,partition)
+import Data.List (sortOn,mapAccumL,partition,nub)
 import Control.Monad
 import Control.Applicative hiding (Const)
 import qualified Data.Set as Set
@@ -33,43 +36,51 @@ import DecisionTree
 
 type Types = Map.Map String [Label]
 
+
+data Val = Match String | Not String  deriving (Show)
+type Feat = (String, Val)
+
+data QueryPattern = QueryPattern {
+    pos :: String,
+    rel :: Maybe String, 
+    morpho :: Maybe [Feat],
+    idx :: String
+} deriving (Show)
+
 -- mapping from UD to GF
-posmap = Map.fromList ([("NOUN", "N"), ("ADJ", "A"), ("ADV", "Adv"), ("DET", "Det"), ("ADP", "Prep")])
-fun2Type = Map.fromList([("AdjCN", ("cn", "ap")), ("AdAP", ("ada", "adj")), ("AdvAP", ("ap", "adv")), ("AdvCN", ("cn", "adv")), ("PrepNP", ("prep", "np"))])
+posmap = Map.fromList ([
+  ("NOUN", "N"), 
+  ("ADJ", "A"), 
+  ("ADV", "Adv"), 
+  ("DET", "Det"), 
+  ("ADP", "Prep"), 
+  ("NUM", "Numeral")])
+mapPOS fun = (mapOne (snd fun), mapOne (fst fun))
+  where mapOne f = (fromJust (Map.lookup (pos f) posmap))
 
-funsAll = [("AdjCN", (("NOUN", Nothing),("ADJ", Just "mod"))),
-         ("AdAP",(("ADJ", Nothing),("ADV", Just "mod"))),
-         ("AdvAP",(("ADJ", Nothing),("NOUN", Just "mod"))),
-        -- ["DetAP",(("ADJ", Nothing),("DET", Just "det@adj")), ()],
-         ("PrepNP", (("ADP", Nothing), ("NOUN", Just "comp:obj"))),
-         ("AdvCN",(("NOUN", Nothing), ("NOUN", Just "mod")))] -- preposition: empty or existing
-         -- TODO: check how it matches deep dependencies
-         -- TODO
 
--- keep results of the previous functions 
-
-learn cnc gr mapping smarts trees = do
-
-  allFs <- forM funsAll $ \funs -> do 
-    let (name, fun) = funs
-    let args = fromJust (Map.lookup name fun2Type)
+--query :: Tree Node -> ((String, Maybe String), (String, Maybe String)) -> IO [(Node, Node)]
+query trees fun = do 
+  t <- trees
+  res <- filter (\(t, e) -> matchEdges fun e) (edges t)
+  return res
+    
+learn cnc gr mapping smarts pat name pattern = do
+    let (pos1, pos2) = mapPOS pattern
     putStrLn ("== " ++ name ++ " ==" )
-
-    let pos1 = fromJust (Map.lookup (fst (snd fun)) posmap)
-    let pos2 = fromJust (Map.lookup (fst (fst fun)) posmap)
+    
     a_ty <- lookupResDef gr (cnc,identS pos1)
     n_ty <- lookupResDef gr (cnc,identS pos2)
     
     let RecType nTs = n_ty
     let RecType aTs = a_ty
     let nountypes = []
-    -- prependModule
+
     
-    let ap = identS (snd args)
-        cn = identS (fst args)
+    let ap = identS (idx (snd pattern))
+        cn = identS (idx (fst pattern))
         patts = do  -- query edges matching AdjCN
-          t <- trees
-          (n1, n2) <- filter (\e -> matchEdges fun e) (edges t)
+          (n1, n2) <- pat
           return [(n1,Vr cn,n_ty),(n2,Vr ap,a_ty)]
         
         cfg = Config [(Vr ap,a_ty),(Vr cn,n_ty)] -- argument types
@@ -77,7 +88,7 @@ learn cnc gr mapping smarts trees = do
                     mapping
                     smarts
 
-    -- mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
+    --mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
 
     let res = fmap (Map.fromListWith (++)) $ runGenM $ do
                 patt <- anyOf (patterns cfg)
@@ -96,27 +107,24 @@ learn cnc gr mapping smarts trees = do
     
 
     fieldsM <- forM (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
-      putStrLn ""
     -- print (ppTerm Unqualified 0 t0)
 
      -- examples
-      --forM_ dataset $ \(vs,inh) ->
-      --  print (hsep (map (\(_,t,_) -> ppTerm Unqualified 10 t) vs) <+> pp '|' <+>
-      --                                hsep (punctuate ";" (map (\(t1,t2,ty) -> pp t1 <> pp '=' <> pp t2 <+> pp ':' <+> pp ty) inh)))
+      forM_ dataset $ \(vs,inh) ->
+        print (hsep (map (\(_,t,_) -> ppTerm Unqualified 10 t) vs) <+> pp '|' <+>
+                                      hsep (punctuate ";" (map (\(t1,t2,ty) -> pp t1 <> pp '=' <> pp t2 <+> pp ':' <+> pp ty) inh)))
 
-      let (accuracy,_,t) = instantiate dim_dataset dataset t0 []
-      
+      let (freq, accuracy,_,t) = instantiate dim_dataset dataset t0 []
       if dim_inh > 0 && accuracy > stopping
         then do putStrLn ""
                 putStrLn ("=== "++show accuracy)
-                
                 print (pp t)
-                return (t, getIdent (unpackT t))
+                return ((t, freq), getIdent (unpackT t))
                 
                 
                 
         else let types = map (\(_,_,ty)->ty) (fst (head dataset))
-                 res   = (reverse . sortOn (\(acc,_,_)->acc))
+                 res   = (reverse . sortOn (\(_,acc,_,_)->acc))
                             (map (\varIndex ->
                                     let var      = freshVar [] (types !! varIndex)
                                         subst0   = [(varIndex+1,Vr var)]
@@ -124,12 +132,12 @@ learn cnc gr mapping smarts trees = do
                                     in instantiate dim_dataset dataset' t0 subst0)
                                 [0..dim_dataset-1])
             in case res of
-                  ((accuracy,subst0,t):rest)
+                  ((freq,accuracy,subst0,t):rest)
                     | null rest || accuracy > stopping -> do
                           putStrLn ""
                           putStrLn ("=== "++show accuracy)
                           print (pp t)
-                          return (t, getIdent (unpackT t))
+                          return ((t, freq), getIdent (unpackT t))
                           
                     | otherwise -> do
                           cross_breed dim_dataset dataset t0 subst0 rest
@@ -140,81 +148,33 @@ learn cnc gr mapping smarts trees = do
     else do 
       let keepN = filterFields cn (getFields nTs) (concat fsM)
       let keepA = filterFields ap (getFields aTs) (concat fsM)
-      let lincatCN = RecType (filter (\(LIdent idx, _) -> showRawIdent idx `elem` (fst (unzip keepN))) nTs)
+      let lincatCN = RecType (filter (\(LIdent idx, _) -> showRawIdent idx `elem` keepN) nTs)
       print (pp lincatCN)
       -- get fields to be filled 
       -- match with trees
       -- if there exists something else make a new parameter?
-      if (length trees) == 1 then 
-        do 
-          let [tree] = trees
-          let f = CncFun (Nothing) (Just (L NoLoc (Abs Explicit ap (Abs Explicit cn tree)))) Nothing Nothing
-        
-          return ([(identS name, f)], [(showIdent cn, keepN), (showIdent ap, keepA)])
-        else do
-          let (tree:rest) = trees
-          let f = CncFun (Nothing) (Just (L NoLoc (Abs Explicit ap (Abs Explicit cn tree)))) Nothing Nothing
-        
-          return ([(identS name, f)], [(showIdent cn, keepN), (showIdent ap, keepA)])
-  let (fs, allArgs) = unzip allFs
-  let ffs = Map.fromListWith (++) (concat allArgs) -- all filtered fields
-  let keepA = fromJust (Map.lookup "ap" ffs)
-  let keepN = fromJust (Map.lookup "cn" ffs)
+      let mappedTrees = map (\t -> (getOneIdent (unpackT (fst t)), t)) trees
 
-
-  let positA = CncFun (Nothing) (Just (L NoLoc (getPosFun "a" keepA))) Nothing Nothing
-  let usen = CncFun (Nothing) (Just (L NoLoc (getPosFun "n" keepN))) Nothing Nothing
-  --print keepN
-
-  let allFunctions = concat fs ++ [(identS "UseN", usen), (identS "PositA", positA)]
-
-  let nounJudgms = Map.fromList allFunctions
-
-  let mod = ppModule Qualified (MN (identS "NounMkd"), ModInfo {jments = nounJudgms, msrc="", mstatus = MSComplete, mextend = [(MN (identS "ResMkd"), MIAll)], mwith=Nothing, mopens=[], mexdeps=[], mflags = noOptions, mseqs = Nothing, mtype = MTConcrete (MN  (identS "Noun"))})
-  print (pp mod)
-
-  writeFile "NounMkd.gf" (show (pp mod))
-      
-    
-      
-  
-         
+      return (mappedTrees, [(showIdent cn, keepN), (showIdent ap, keepA)])
+       
 
   where
-    -- | helper functions to collect information about used fields
+    -- | helper functions to collect information about used fields    
 
-    --getPosFun pos [a] = Vr (identS pos)
-    getPosFun pos kTs = Abs Explicit (identS pos) (R (map (\(x,t) -> mapWithType x t pos) kTs))
+    filterFields cl t inp = filter (\x -> (showIdent cl, x) `elem` inp) t
 
-    mapWithType x t@(Table _ _) pos = (LIdent (rawIdentS x), (Nothing, T TRaw [(lengthTable t (P (Vr (identS pos)) (LIdent (rawIdentS x))))]))
-      --(LIdent (rawIdentS x), (Nothing, P (Vr (identS pos)) (LIdent (rawIdentS x))))
-    mapWithType x _ pos = (LIdent (rawIdentS x), (Nothing, P (Vr (identS pos)) (LIdent (rawIdentS x))))
+    getFields ts = map (\(LIdent idx, _) -> showRawIdent idx) ts
 
-   ---lengthTable (Table _ t@(Table _ _)) idx = (PW, T TRaw [(lengthTable t idx)])
-    lengthTable _ idx = (PW, idx)
+    getOneIdent (C s1 s2) = getOneIdent s1 ++ getOneIdent s2
+    getOneIdent (S s1@(S _ _) s2@(S _ _)) = getOneIdent s1
+    getOneIdent (S s@(S _ _) _) = getOneIdent s
+    getOneIdent (S s@(P _ _) _) = getOneIdent s
+    getOneIdent (S _ s@(S _ _)) = getOneIdent s
+    getOneIdent (S _ s@(P _ _)) = getOneIdent s
+    getOneIdent (P (Vr idx) (LIdent field)) = [(showIdent idx, showRawIdent field)]
+    getOneIdent (S (T _ t) _) = concat (map getTerm t)
+    getOneIdent _  = []
 
-    
-
-    filterFields cl t inp = filter (\(x, y) -> (showIdent cl, x) `elem` inp) t
-
-    getFields ts = map (\(LIdent idx, y) -> (showRawIdent idx, y)) ts
-
-    getIdent (C s1 s2) = getIdent s1 ++ getIdent s2
-    getIdent (S s1@(S _ _) s2@(S _ _)) = getIdent s1 ++ getIdent s2
-    getIdent (S s@(S _ _) _) = getIdent s
-    getIdent (S _ s@(S _ _)) = getIdent s
-    getIdent (S _ s@(P _ _)) = getIdent s
-    getIdent (S s@(P _ _) _) = getIdent s
-    getIdent (P (Vr idx) (LIdent field)) = [(showIdent idx, showRawIdent field)]
-    getIdent (S (T _ t) _) = concat (map getTerm t)
-    getIdent _  = []
-
-    getTerm (PP _ _, s@(S _ _)) = getIdent s
-    getTerm (PP _ pp, _) = []
-    
-    unpackT (T _ ((_, c@(C _ _)):ts)) = c
-    unpackT (T _ ((_, t@(T _ _)):ts)) = unpackT t
-    unpackT c@(C _ _) = c
 
 
     stopping = 0.95
@@ -252,7 +212,7 @@ learn cnc gr mapping smarts trees = do
 
     instantiate dim_dataset dataset t0 subst0 =
       let t = foldr (\(_,Vr var) t -> T TRaw [(PV var,t)]) (substitute subst t0) subst0
-      in (fromIntegral (length dataset') / fromIntegral (length dataset), subst0, t)
+      in (length dataset', fromIntegral (length dataset')/fromIntegral (length dataset), subst0, t)
       where
         attrs            = zipWith (\i (t,_,ty) -> A (TermName t (\(_,v,_) -> v)) ((!!i) . snd)) [0..] (snd (head dataset))
         (dataset',subst) =
@@ -265,21 +225,22 @@ learn cnc gr mapping smarts trees = do
               dataset
               [1..dim_dataset]
 
-    cross_breed dim_dataset dataset t0 subst0 ((_,subst0',_):rest) =
+    cross_breed dim_dataset dataset t0 subst0 ((_,_,subst0',_):rest) =
        let subst0'' = subst0++subst0'
            dataset' = map (selectVars subst0'') dataset
-           (accuracy,_,t) = instantiate dim_dataset dataset' t0 subst0''
+           (freq,accuracy,_,t) = instantiate dim_dataset dataset' t0 subst0''
        in if null rest || accuracy > stopping
             then do putStrLn ""
                     putStrLn ("=== "++show accuracy)
                     print t
                     print (pp t)
-                    return $ (t, getIdent (unpackT t))
+                    return ((t, freq), getIdent (unpackT t))
             else cross_breed dim_dataset dataset t0 subst0'' rest
 
 
 type POS  = String
 type Node = (Int,String,POS,[(String,String)],String)
+
 
 data Config
    = Config {
@@ -322,10 +283,76 @@ readCONLL fpath = do
           case break (=='=') s of
             (x,'=':y) -> (x,y)
 
-matchEdges ((p1, Nothing), (p2, Just r2)) (n1@(_,_,pos1,_,_),n2@(_,_,pos2,_,rel2))    = p1 == pos1 && p2 == pos2 && r2 == rel2               
-matchEdges ((p1, Just r1), (p2, Just r2)) (n1@(_,_,pos1,_,rel1),n2@(_,_,pos2,_,rel2)) = p1 == pos1 && p2 == pos2 && r1 == rel2 && r2 == rel2 
-matchEdges ((p1, Just r1), (p2, Nothing)) (n1@(_,_,pos1,_,rel1),n2@(_,_,pos2,_,_))    = p1 == pos1 && p2 == pos2 && r1 == rel1              
-matchEdges ((p1, Nothing), (p2, Nothing)) (n1@(_,_,pos1,_,_),n2@(_,_,pos2,_,_))       = p1 == pos1 && p2 == pos2                             
+matchEdges (p1, p2) (n1@(_,_,pos1,_,rel1),n2@(_,_,pos2,_,rel2)) = pos p1 == pos1 && pos p2 == pos2 && checkRel p1 rel1 && checkRel p2 rel2
+  where checkRel p r = (rel p == Nothing) || fromJust (rel p) == r
+   
+-- | functions to create a correct representation of syntax
+--getPosFun :: String -> String -> Map.Map String [String] -> Term
+getPosFun lang modmap name pos n ffs = getF (Map.lookup n ffs)
+  
+  where 
+    getF Nothing = Nothing 
+    getF (Just res) = Just (fromJust (Map.lookup pos modmap), [getFun name [pos] (getRecord pos res)])
+    getRecord pos res = R (map (\x -> mapWithType x pos) res)
+    mapWithType x pos = (LIdent (rawIdentS x), (Nothing, P (Vr (identS pos)) (LIdent (rawIdentS x))))
+
+
+getFun :: String -> [String] -> Term -> (Ident, Info)
+getFun name args f = (identS name, CncFun (Nothing) (Just (L NoLoc (getArgs args f))) Nothing Nothing)
+  where 
+    getArgs [] f = f 
+    getArgs (arg:args) f = Abs Explicit (identS arg) (getArgs args f) 
+    
+
+getLang cnc = drop (length (showIdent modname) - 3) (showIdent modname)
+  where MN modname = cnc
+
+getModule lang name jments = ppModule Qualified (MN (identS (name ++ lang)), ModInfo {jments = funs, msrc="", mstatus = MSComplete, mextend = [(MN (identS ("Res" ++ lang)), MIAll)], mwith=Nothing, mopens=[], mexdeps=[], mflags = noOptions, mseqs = Nothing, mtype = MTConcrete (MN  (identS name))})
+  where funs = Map.fromList jments
+
+
+combineTrees funName name wo mod lang [] argMap argNames = (Nothing, [])
+combineTrees funName name wo mod lang fun argMap argNames = (Just (main, [getFun funName argNames (R fields)]), concat addArgs)
+    where 
+        modname = fromJust (Map.lookup wo mod) ++ lang
+        main = fromJust (Map.lookup name mod)
+        (fields, addArgs) = unzip (map (\x -> matchFields name wo modname x (Map.lookup x varTrees)) (fromJust (Map.lookup name argMap)))
+        -- check that variation comes from word order variation
+        varTrees = Map.fromListWith (++) (map (\(f, t) -> (snd (head (filter (\(x, y) -> x == name) f)), [(map fst f, t)])) fun)
+    
+
+--matchFields :: String -> String -> String -> String -> Maybe Term -> ((IdentTerm, [])
+matchFields name wo mod field Nothing       = ((LIdent (rawIdentS field), (Nothing, P (Vr (identS name)) (LIdent (rawIdentS field)))),[])
+matchFields name wo mod field (Just [(_,def)])   = ((LIdent (rawIdentS field), (Nothing, fst def)),[])
+matchFields name wo mod field (Just defs) = getDefs name wo mod field (unzip defs)
+  where 
+        
+        getDefs name wo mod field (order, defs')            | length (nub order) == 1 = ((LIdent (rawIdentS field), (Nothing, head (map fst (sortOn snd defs')))), [])
+        getDefs name wo mod field (order, (def1:def2:rest)) | otherwise               =  ((LIdent (rawIdentS field), (Nothing, S (T TRaw [(PP (MN (identS mod), identS "pre") [] , fst def1), (PP (MN (identS mod), identS "post") [] , fst def2)]) (P (Vr (identS wo)) (LIdent (rawIdentS "wo"))))), [(wo, ["wo"])])
+
+getNewType fields [] base = []       
+getNewType fields ((def, tree):funs) base | el `elem` fields = ((el, [(map fst def, tree)]):(getNewType fields funs base))
+  where el = snd (head (filter (\(x, a) -> x == base) def))
+getNewType fields ((def, tree):funs) base | otherwise = (("s", [(map fst def, tree)]):(getNewType fields funs base))
+
+getIdent (C s1 s2) = getIdent s1 ++ getIdent s2
+getIdent (S s1@(S _ _) s2@(S _ _)) = getIdent s1 ++ getIdent s2
+getIdent (S s1@(S _ _) s2@(P _ _)) = getIdent s1 ++ getIdent s2
+getIdent (S s1@(P _ _) s2@(S _ _)) = getIdent s1 ++ getIdent s2
+getIdent (S s@(S _ _) _) = getIdent s
+getIdent (S _ s@(S _ _)) = getIdent s
+getIdent (S _ s@(P _ _)) = getIdent s
+getIdent (S s@(P _ _) _) = getIdent s
+getIdent (P (Vr idx) (LIdent field)) = [(showIdent idx, showRawIdent field)]
+getIdent (S (T _ t) _) = concat (map getTerm t)
+getIdent _  = []
+
+getTerm (PP _ _, s@(S _ _)) = getIdent s
+getTerm (PP _ pp, _) = []
+
+unpackT (T _ ((_, c@(C _ _)):ts)) = c
+unpackT (T _ ((_, t@(T _ _)):ts)) = unpackT t
+unpackT c@(C _ _) = c
 
 nodes t = collect t []
   where
@@ -333,7 +360,7 @@ nodes t = collect t []
 
 edges t = collect t []
   where
-    collect t@(Node n1 children) es = foldr collect ([(n1,n2) | Node n2 _ <- children]++es) children
+    collect t@(Node n1 children) es = foldr collect ([(t, (n1,n2)) | Node n2 _ <- children]++es) children
 
 subtrees t = collect t []
   where
@@ -462,4 +489,3 @@ with q (GenM g) =
   GenM (\s k r -> if Set.member q s
                     then Ok r
                     else g (Set.insert q s) k r)
-
