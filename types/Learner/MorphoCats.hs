@@ -9,6 +9,7 @@ import Data.Char (isSpace, isDigit, toUpper)
 import Data.Maybe (fromMaybe, fromJust, isNothing)
 import Data.List (sort,sortOn,intercalate,intersect,intercalate,mapAccumL)
 import qualified Data.Map.Strict as Map
+import qualified Data.Set as Set
 import qualified Data.ByteString.Lazy as BS
 import qualified Data.ByteString.Lazy.UTF8 as BS
 import qualified Codec.Compression.GZip as GZip
@@ -92,7 +93,8 @@ readWiktionary cfg = do
           return (word,pos,sort tags,[(tags,form) | (tags,form) <- forms
                                                   , form /= "-" &&
                                                     tags /= ["table-tags"] &&
-                                                    tags /= ["inflection-template"]])
+                                                    tags /= ["inflection-template"] &&
+                                                    not (elem "error-unrecognized-form" tags)])
 
         wc c | isSpace c = ' '
              | otherwise = c
@@ -138,7 +140,7 @@ learnMorphoCats cfg attrs rgl ((pos,(tagsSet0,words)):rest) = do
   case lookupPOS pos of
     Just pos -> do putStrLn ("=== "++posTag pos)
                    let dts0 = iterateD [tags | (tags,count) <- Map.toList tagsSet0, count > cfgMinForms cfg]
-                       dts  = map (stack dts0) (iterate [tags | (tags,_) <- dts0])
+                       dts  = map stack (iterate attrs dts0)
                    when (cfgVerbose cfg) $
                      forM_ dts $ \(tags,dt) -> do
                        print tags
@@ -152,29 +154,27 @@ learnMorphoCats cfg attrs rgl ((pos,(tagsSet0,words)):rest) = do
                    length dts `seq` learnMorphoCats cfg attrs rgl' rest
     Nothing  -> learnMorphoCats cfg attrs rgl rest
   where
-    stack dts0 (tags0,dt) =
+    stack (tags0,dt) =
       let dt' = do tags <- dt
-                   tags <- fromJust (lookup tags dts0)
                    return (tags,fromJust (Map.lookup tags tagsSet0))
       in (tags0,dt')
 
-    iterate []      = []
-    iterate tagsSet =
-      let (matched,dt) = build attrs [(tags,tags) | tags <- tagsSet]
-          (tagsSet',dt') = prune [tags | tags <- tagsSet, isNothing (lookup tags matched)] dt
-      in (foldl1 intersect dt',dt'):iterate tagsSet'
+    iterate attrs dataset =
+      case sortOn fst (concatMap (groupWith dataset) attrs) of
+        ((_,(dt,taken_tags)):_) -> iterate attrs ((foldl1 intersect dt,dt) : [x | x@(tags,dt) <- dataset, not (elem tags taken_tags)])
+        []                      -> dataset
       where
-        prune vs dt@(Leaf tags _) = (vs,dt)
-        prune vs (Decision n@(ParamName name f) proj dts) =
-          case fmap (\((k,dt),dts) -> ((f k,dt),dts)) (Map.minViewWithKey dts) of
-            Just ((Nothing,dt),dts) -> let def_tag = proj (take 1 [wikt_tag t | t <- all_tags, typ t == name])
-                                       in case Map.lookup def_tag dts of
-                                            Just _  -> let (vs',dts') = mapAccumL prune vs dts
-                                                       in unsingle (values dt++vs',Decision n proj dts')
-                                            Nothing -> let (vs',dts') = mapAccumL prune vs (Map.insert def_tag dt dts)
-                                                       in unsingle (vs',Decision n proj dts')
-            _                       -> let (vs',dts') = mapAccumL prune vs dts
-                                       in unsingle (vs',Decision n proj dts')
+        groupWith dataset (A n@(ParamName _ f) project) = do
+          let m = foldl (\m x -> let k = project (fst x)
+                                 in case f k of
+                                      Nothing -> m
+                                      Just _  -> Map.insertWith (++) k [x] m)
+                        Map.empty dataset
+          guard (Map.size m > 1)
+          m <- sequence m
+          let dt = Decision n project (fmap snd m)
+              taken_tags = fmap fst (Map.elems m)
+          return (-density (values dt),(dt,taken_tags))
 
     iterateD []      = []
     iterateD tagsSet =
@@ -186,11 +186,8 @@ learnMorphoCats cfg attrs rgl ((pos,(tagsSet0,words)):rest) = do
         prune vs (Decision n@(ParamName name f) proj dts) =
           case fmap (\((k,dt),dts) -> ((f k,dt),dts)) (Map.minViewWithKey dts) of
             Just ((Nothing,dt),dts) -> let def_tag = proj (take 1 [wikt_tag t | t <- all_tags, typ t == name])
-                                       in case Map.lookup def_tag dts of
-                                            Just _  -> let (vs',dts') = mapAccumL prune vs dts
-                                                       in unsingle (values dt++vs',Decision n proj dts')
-                                            Nothing -> let (vs',dts') = mapAccumL prune vs (Map.insert def_tag dt dts)
-                                                       in unsingle (vs',Decision n proj dts')
+                                       in let (vs',dts') = mapAccumL prune vs dts
+                                          in unsingle (values dt++vs',Decision n proj dts')
             _                       -> let (vs',dts') = mapAccumL prune vs dts
                                        in unsingle (vs',Decision n proj dts')
 
@@ -315,3 +312,9 @@ genDictAbs jments pos ((word,tags,forms):rest) dts
   | otherwise =
       let jments' = Map.insert (identS (word++"_"++showIdent (posCat pos))) (AbsFun (Just (noLoc (Cn (posCat pos)))) (Just 0) (Just []) Nothing) jments
       in genDictAbs jments' pos rest dts
+
+
+density :: Ord b => [[b]] -> Double
+density bs = fromIntegral (sum (map length bs)) / fromIntegral total
+  where
+    total = Set.size (Set.fromList (concat bs))
