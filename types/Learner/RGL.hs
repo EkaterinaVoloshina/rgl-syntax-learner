@@ -21,7 +21,7 @@ data RGL
         }
 
 readGrammar :: Config -> IO RGL
-readGrammar cfg = withStatus ("Writing grammar to "++fdir) $ do
+readGrammar cfg = withStatus ("Reading grammar from "++fdir) $ do
   let resX       = moduleNameS (lang_module "Res" cfg)
       catX       = moduleNameS (lang_module "Cat" cfg)
       cat        = moduleNameS "Cat"
