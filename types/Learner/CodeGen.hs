@@ -23,6 +23,8 @@ import GF.Grammar.Grammar hiding (Rule(..))
 import GF.Grammar.Lockfield
 import GF.Grammar.Macros (term2patt,composSafeOp,typeFormCnc)
 import GF.Compile
+import System.Exit
+import System.Process
 import System.FilePath
 import System.Directory
 import Data.Tree
@@ -33,6 +35,7 @@ import Control.Monad
 import Control.Applicative hiding (Const)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
+import Learner.Config hiding (POS)
 import Learner.DecisionTree
 
 type Types = Map.Map String [Label]
@@ -84,10 +87,10 @@ learnPattern cnc gr mapping smarts pat name pattern = do
           (n1, n2) <- pat
           return [(n1,Vr cn,n_ty),(n2,Vr ap,a_ty)]
         
-        cfg = Config [(Vr ap,a_ty),(Vr cn,n_ty)] -- argument types
-                    patts                       -- matching patterns
-                    mapping
-                    smarts
+        cfg = CodeConfig [(Vr ap,a_ty),(Vr cn,n_ty)] -- argument types
+                         patts                       -- matching patterns
+                         mapping
+                         smarts
 
     --mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
 
@@ -243,8 +246,8 @@ type POS  = String
 type Node = (Int,String,POS,[(String,String)],String)
 
 
-data Config
-   = Config {
+data CodeConfig
+   = CodeConfig {
        args     :: [(Term,Type)],
        patterns :: [[(Node,Term,Type)]],
        mapping  :: [(Either RawIdent (Ident,Ident),(String,String))],
@@ -258,8 +261,17 @@ data TermName a = TermName Term (a -> Term)
 loadGrammar :: FilePath -> IO (ModuleName,SourceGrammar)
 loadGrammar fpath = batchCompile noOptions Nothing [fpath]
 
-readCONLL :: FilePath -> IO [Tree Node]
-readCONLL fpath = do
+readCONLL :: Config -> String -> IO [Tree Node]
+readCONLL cfg treebank = do
+  let fdir  = "data" </> cfgLangName cfg
+  let fpath = fdir </> treebank
+  exist <- doesDirectoryExist fpath
+  when (not exist) $ do
+    createDirectoryIfMissing True fdir
+    res <- system ("curl https://grew.fr/download/SUD_2.17/"++treebank++".tgz | tar -C "++fdir++" -xzf -")
+    case res of
+      ExitSuccess -> return ()
+      _           -> exitWith res
   fs <- getDirectoryContents fpath
   fmap concat $ forM fs $ \f -> do
      if takeExtension f == ".conllu"

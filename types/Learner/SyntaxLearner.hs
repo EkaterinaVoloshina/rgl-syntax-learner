@@ -7,6 +7,7 @@ import Learner.CodeGen
 import qualified Data.Map as Map
 import GF.Text.Pretty hiding (empty)
 import GF.Grammar.Grammar hiding (Rule(..))
+import Data.Char (toUpper)
 import Data.Maybe
 import GF.Infra.Ident
 import GF.Grammar.Lookup
@@ -42,9 +43,8 @@ mapping =
   ]
 
 learn cfg = do
-    (cnc,gr) <- loadGrammar ("src" </> cfgLangName cfg </> "LangMkd.gf")
-    trees <- fmap concat $ forM (cfgTreebanks cfg) $ \treebank ->
-               readCONLL ("data" </> treebank)
+    (cnc,gr) <- loadGrammar ("src" </> cfgLangName cfg </> "Lang"++toTitle (cfgIso3 cfg)++".gf")
+    trees <- fmap concat $ mapM (readCONLL cfg) (cfgTreebanks cfg)
 
     let lang = getLang cnc
 
@@ -66,6 +66,8 @@ learn cfg = do
         let mod = getModule lang m funs
         writeFile (m ++ lang ++ ".gf") (show (pp mod))
 
+toTitle []     = []
+toTitle (c:cs) = toUpper c : cs
 
 learnAdjCN lang cnc gr mapping noSmarts trees = do 
     let name = "AdjCN"
