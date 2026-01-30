@@ -1,6 +1,9 @@
-module SyntaxLearner where 
+module Learner.SyntaxLearner(options,learn) where
 
-
+import System.FilePath
+import System.Console.GetOpt
+import Learner.Config
+import Learner.CodeGen
 import qualified Data.Map as Map
 import GF.Text.Pretty hiding (empty)
 import GF.Grammar.Grammar hiding (Rule(..))
@@ -8,14 +11,41 @@ import Data.Maybe
 import GF.Infra.Ident
 import GF.Grammar.Lookup
 import Control.Monad
-import GF.Infra.Ident
-import CodeGen
 import Data.List
+
+options =
+  [ Option "v" [] (NoArg (\cfg->cfg{cfgVerbose=True})) "verbose output"
+  ]
 
 modmap = Map.fromList [("ap", "Adjective"), ("cn", "Noun"), ("adv", "Adverb"), ("ada", "Adverb"), 
     ("a", "Adjective"), ("n", "Noun"), ("adp", "Res")]
 
-learnGrammar cnc gr mapping noSmarts trees = do 
+mapping =
+  [ (Left (rawIdentS "count_form"),               ("Number","Count"))
+  , (Left (rawIdentS "vocative"),                 ("Case","Voc"))
+  , (Left (rawIdentS "rel"),                      ("Relative","Yes"))
+  , (Left (rawIdentS "adverb"),                   ("Adverb","Yes"))
+  , (Right (identS "Number",identS "Sg"),         ("Number","Sing"))
+  , (Right (identS "Number",identS "Pl"),         ("Number","Plur"))
+  , (Right (identS "GenNum",identS "GSg"),        ("Number","Sing"))
+  , (Right (identS "GenNum",identS "GPl"),        ("Number","Plur"))
+  , (Right (identS "Gender",identS "Masc"),       ("Gender","Masc"))
+  , (Right (identS "Gender",identS "Fem"),        ("Gender","Fem"))
+  , (Right (identS "Gender",identS "Neuter"),     ("Gender","Neut"))
+  , (Right (identS "Species",identS "Indef"),     ("Definite","Ind"))
+  , (Right (identS "Species",identS "Def"),       ("Definite","Def"))
+  , (Right (identS "Distance",identS "Proximal"), ("Distance","Proximal"))
+  , (Right (identS "Distance",identS "Distal"),   ("Distance","Distal"))
+  , (Right (identS "NRelType",identS "AdvMod"),   ("RelType","Adv"))
+  , (Right (identS "NRelType",identS "AdjMod"),   ("RelType","Adj"))
+  , (Right (identS "NRelType",identS "Pref"),     ("RelType","Pref"))
+  ]
+
+learn cfg = do
+    (cnc,gr) <- loadGrammar ("src" </> cfgLangName cfg </> "LangMkd.gf")
+    trees <- fmap concat $ forM (cfgTreebanks cfg) $ \treebank ->
+               readCONLL ("data" </> treebank)
+
     let lang = getLang cnc
 
     (adjCN, oneArgs) <- learnAdjCN lang cnc gr mapping noSmarts trees
@@ -42,7 +72,7 @@ learnAdjCN lang cnc gr mapping noSmarts trees = do
     let pattern = (QueryPattern {pos="NOUN", rel=Nothing, morpho=Nothing, idx="cn"}, 
                     QueryPattern {pos="ADJ", rel = Just "mod", morpho=Nothing, idx="ap"})
     let (_, patts) = unzip $ query trees pattern
-    (fun, args) <- learn cnc gr mapping noSmarts patts name pattern
+    (fun, args) <- learnPattern cnc gr mapping noSmarts patts name pattern
     let argMap = Map.fromList args
     
     let (fields, addArgs) = combineTrees name "cn" "ap" modmap lang fun argMap ["ap", "cn"]
@@ -50,13 +80,13 @@ learnAdjCN lang cnc gr mapping noSmarts trees = do
 
 {-learnAdAP lang cnc gr mapping noSmarts trees = do 
     let name = "AdAP"
-    (fun, args) <- learn cnc gr mapping noSmarts trees name (("ADJ", Nothing),("ADV", Just "mod")) ("ada", "adj")
+    (fun, args) <- learnPattern cnc gr mapping noSmarts trees name (("ADJ", Nothing),("ADV", Just "mod")) ("ada", "adj")
     let (fields, addArgs) = combineTrees name "adj" "ada" modmap lang fun args ["ada", "adj"]
     return (fields, addArgs ++ args) 
 
 --learnAdvAP lang cnc gr mapping noSmarts trees = do 
 --    let name = "AdvAP"
---    (fun, args) <- learn cnc gr mapping noSmarts trees name (("ADJ", Nothing),("NOUN", Just "mod")) ("ap", "adv")
+--    (fun, args) <- learnPattern cnc gr mapping noSmarts trees name (("ADJ", Nothing),("NOUN", Just "mod")) ("ap", "adv")
 --    let (fields, addArgs) = combineTrees name "ap" "adv" modmap lang fun args ["adv", "ap"]
 --    return (fields, addArgs ++ args)-}
 
@@ -66,7 +96,7 @@ learnAdv lang cnc gr mapping noSmarts trees np = do
     let pattern = (QueryPattern {pos="ADP", rel=Nothing, morpho=Nothing, idx="adp"}, 
                    QueryPattern {pos="NOUN", rel = Just "comp:obj", morpho=Nothing, idx="n"})
     let (trees', patts) = unzip $ query trees pattern
-    (fun, args) <- learn cnc gr mapping noSmarts patts name1 pattern
+    (fun, args) <- learnPattern cnc gr mapping noSmarts patts name1 pattern
     let argMap = Map.fromList args
     
     let f = Map.fromListWith (++) (getNewType np fun "n")
@@ -80,7 +110,7 @@ learnAdv lang cnc gr mapping noSmarts trees np = do
     let (_, patts2) = unzip $ query trees' pattern2
     let patts3 = unionPatts (patts, 0) (patts2, 1)
 
-    (fun, args) <- learn cnc gr mapping noSmarts patts3 name2 pattern2
+    (fun, args) <- learnPattern cnc gr mapping noSmarts patts3 name2 pattern2
     let argMap = Map.fromList args
     let (fields2, addArgs2) = combineTrees name2 "cn" "adv" modmap lang fun argMap ["adv", "cn"]
 
@@ -109,7 +139,7 @@ learnDetCN lang cnc gr mapping noSmarts trees cn = do
     let pattern1 = (QueryPattern {pos="NOUN", rel=Nothing, morpho=Nothing, idx="cn"}, 
                    QueryPattern {pos="NUM", rel = Just "mod", morpho=Nothing, idx="num"})
     let (trees', patts) = unzip $ query trees pattern1
-    (fun, args) <- learn cnc gr mapping noSmarts patts name pattern1
+    (fun, args) <- learnPattern cnc gr mapping noSmarts patts name pattern1
     let f = Map.fromListWith (++) (getNewType fields fun "cn")
     let argMap = Map.fromList args
 
@@ -120,7 +150,7 @@ learnDetCN lang cnc gr mapping noSmarts trees cn = do
 
     let pattern2 = (QueryPattern {pos="NOUN", rel=Nothing, morpho=Nothing, idx="cn"}, 
                    QueryPattern {pos="DET", rel = Just "det", morpho=Nothing, idx="det"})
-    (fun2, args2) <- learn cnc gr mapping noSmarts patts name pattern2
+    (fun2, args2) <- learnPattern cnc gr mapping noSmarts patts name pattern2
     let f2 = getNewType fields fun2 "cn"
     print f2
     let pattern3 = (QueryPattern {pos="NOUN", rel=Nothing, morpho=Nothing, idx="cn"}, 

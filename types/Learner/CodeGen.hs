@@ -1,4 +1,5 @@
-module CodeGen(readCONLL,Node(..),ppNode,drawTree,
+module Learner.CodeGen
+              (readCONLL,Node(..),ppNode,drawTree,
                loadGrammar,
                identS,Ident,
                rawIdentS,RawIdent,
