@@ -132,7 +132,7 @@ learnDetCN cfg cnc gr noSmarts trees cn = do
                    QueryPattern {pos="DET", rel = Just "det", morpho=Nothing, idx="det"})
     (fun2, args2) <- learnPattern cfg cnc gr noSmarts patts name pattern2
     let f2 = getNewType fields fun2 "cn"
-    print f2
+    -- print f2
     let pattern3 = (QueryPattern {pos="NOUN", rel=Nothing, morpho=Nothing, idx="cn"}, 
                    QueryPattern {pos="DET", rel = Just "mod", morpho=Nothing, idx="det"})
 

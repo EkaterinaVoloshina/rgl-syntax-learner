@@ -102,18 +102,18 @@ learnPattern cfg cnc gr smarts pat name pattern = do
     -- print (ppTerm Unqualified 0 t0)
 
      -- examples
-      forM_ dataset $ \(vs,inh) ->
-        print (hsep (map (\(_,t,_) -> ppTerm Unqualified 10 t) vs) <+> pp '|' <+>
-                                      hsep (punctuate ";" (map (\(t1,t2,ty) -> pp t1 <> pp '=' <> pp t2 <+> pp ':' <+> pp ty) inh)))
+      when (cfgVerbose cfg) $
+        forM_ dataset $ \(vs,inh) ->
+          print (hsep (map (\(_,t,_) -> ppTerm Unqualified 10 t) vs) <+> pp '|' <+>
+                                        hsep (punctuate ";" (map (\(t1,t2,ty) -> pp t1 <> pp '=' <> pp t2 <+> pp ':' <+> pp ty) inh)))
 
       let (freq, accuracy,_,t) = instantiate dim_dataset dataset t0 []
       if dim_inh > 0 && accuracy > stopping
-        then do putStrLn ""
-                putStrLn ("=== "++show accuracy)
-                print (pp t)
-                return ((t, freq), getIdent (unpackT t))
-                
-                
+        then do when (cfgVerbose cfg) $ do
+                  putStrLn ""
+                  putStrLn ("=== "++show accuracy)
+                  print (pp t)
+                return ((t, freq), getIdent (unpackT t))                
                 
         else let types = map (\(_,_,ty)->ty) (fst (head dataset))
                  res   = (reverse . sortOn (\(_,acc,_,_)->acc))
@@ -126,9 +126,10 @@ learnPattern cfg cnc gr smarts pat name pattern = do
             in case res of
                   ((freq,accuracy,subst0,t):rest)
                     | null rest || accuracy > stopping -> do
-                          putStrLn ""
-                          putStrLn ("=== "++show accuracy)
-                          print (pp t)
+                          when (cfgVerbose cfg) $ do
+                            putStrLn ""
+                            putStrLn ("=== "++show accuracy)
+                            print (pp t)
                           return ((t, freq), getIdent (unpackT t))
                           
                     | otherwise -> do
@@ -141,7 +142,7 @@ learnPattern cfg cnc gr smarts pat name pattern = do
       let keepN = filterFields cn (getFields nTs) (concat fsM)
       let keepA = filterFields ap (getFields aTs) (concat fsM)
       let lincatCN = RecType (filter (\(LIdent idx,_, _) -> showRawIdent idx `elem` keepN) nTs)
-      print (pp lincatCN)
+      --print (pp lincatCN)
       -- get fields to be filled 
       -- match with trees
       -- if there exists something else make a new parameter?
@@ -222,10 +223,10 @@ learnPattern cfg cnc gr smarts pat name pattern = do
            dataset' = map (selectVars subst0'') dataset
            (freq,accuracy,_,t) = instantiate dim_dataset dataset' t0 subst0''
        in if null rest || accuracy > stopping
-            then do putStrLn ""
-                    putStrLn ("=== "++show accuracy)
-                    print t
-                    print (pp t)
+            then do when (cfgVerbose cfg) $ do
+                      putStrLn ""
+                      putStrLn ("=== "++show accuracy)
+                      print (pp t)
                     return ((t, freq), getIdent (unpackT t))
             else cross_breed dim_dataset dataset t0 subst0'' rest
 
