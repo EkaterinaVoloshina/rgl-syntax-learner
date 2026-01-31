@@ -138,7 +138,7 @@ learnMorphoCats cfg attrs rgl []                            = do
     fixParamName id info = info
 learnMorphoCats cfg attrs rgl ((pos,(tagsSet0,words)):rest) = do
   case lookupPOS pos of
-    Just pos -> do putStrLn ("=== "++posTag pos)
+    Just pos -> do putStrLn ("=== "++posWiktTag pos)
                    let dts0 = iterateD [tags | (tags,count) <- Map.toList tagsSet0, count > cfgMinForms cfg]
                        dts  = map stack (iterate attrs dts0)
                    when (cfgVerbose cfg) $

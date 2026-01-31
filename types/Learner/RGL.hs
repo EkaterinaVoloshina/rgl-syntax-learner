@@ -1,7 +1,6 @@
-module Learner.RGL(RGL(..), readGrammar, writeGrammar) where
+module Learner.RGL(RGL(..), readGrammar, loadGrammar, writeGrammar) where
 
 import Learner.Config
-import Data.Char
 import System.FilePath
 import System.Directory
 import GF.Infra.Ident
@@ -9,6 +8,7 @@ import GF.Infra.Option
 import GF.Grammar.Parser
 import GF.Grammar.Printer
 import GF.Grammar.Grammar
+import GF.Compile
 import qualified Data.Map as Map
 import qualified Data.ByteString.Char8 as BS
 
@@ -22,12 +22,12 @@ data RGL
 
 readGrammar :: Config -> IO RGL
 readGrammar cfg = withStatus ("Reading grammar from "++fdir) $ do
-  let resX       = moduleNameS (lang_module "Res" cfg)
-      catX       = moduleNameS (lang_module "Cat" cfg)
+  let resX       = moduleNameS (cfgLangModule cfg "Res")
+      catX       = moduleNameS (cfgLangModule cfg "Cat")
       cat        = moduleNameS "Cat"
-      dictX      = moduleNameS (lang_module "Dict" cfg)
-      dictXAbs   = moduleNameS (lang_module "Dict" cfg++"Abs")
-      paradigmsX = moduleNameS (lang_module "Paradigms" cfg)
+      dictX      = moduleNameS (cfgLangModule cfg "Dict")
+      dictXAbs   = moduleNameS (cfgLangModule cfg "Dict"++"Abs")
+      paradigmsX = moduleNameS (cfgLangModule cfg "Paradigms")
       predef     = moduleNameS "Predef"
 
   resM       <- loadModule resX MTResource [] []
@@ -67,21 +67,19 @@ readGrammar cfg = withStatus ("Reading grammar from "++fdir) $ do
     notResValue (ResValue _ _) = False
     notResValue _              = True
 
+loadGrammar :: FilePath -> IO (ModuleName,SourceGrammar)
+loadGrammar fpath = batchCompile noOptions Nothing [fpath]
+
 writeGrammar :: Config -> RGL -> IO ()
 writeGrammar cfg rgl = withStatus ("Writing grammar to "++fdir) $ do
-  writeModule (lang_module "Res" cfg) (rglRes rgl)
-  writeModule (lang_module "Cat" cfg) (rglCat rgl)
-  writeModule (lang_module "Dict" cfg) (rglDict rgl)
-  writeModule (lang_module "Dict" cfg++"Abs") (rglDictAbs rgl)
-  writeModule (lang_module "Paradigms" cfg) (rglParadigms rgl)
+  writeModule (cfgLangModule cfg "Res") (rglRes rgl)
+  writeModule (cfgLangModule cfg "Cat") (rglCat rgl)
+  writeModule (cfgLangModule cfg "Dict") (rglDict rgl)
+  writeModule (cfgLangModule cfg "Dict"++"Abs") (rglDictAbs rgl)
+  writeModule (cfgLangModule cfg "Paradigms") (rglParadigms rgl)
   where
     fdir = "src" </> cfgLangName cfg
 
     writeModule mn mi = do
       let fpath = fdir </> mn <.> "gf"
       writeFile fpath (show (ppModule Unqualified (moduleNameS mn,mi)))
-
-lang_module pref cfg =
-  case cfgIso3 cfg of
-    []     -> pref
-    (c:cs) -> pref++toUpper c:cs

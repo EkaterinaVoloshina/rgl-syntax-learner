@@ -1,22 +1,19 @@
 module Learner.CodeGen
               (readCONLL,Node(..),ppNode,drawTree,
-               loadGrammar,
                identS,Ident,
                rawIdentS,RawIdent,
                noSmarts,
                learnPattern, query, getPosFun, 
                getFun, getModule, matchFields,
-               combineTrees, getLang, mapPOS, getNewType, 
+               combineTrees, getNewType, 
                QueryPattern(..)) where
 
 import Prelude hiding ((<>))
 import GF.Infra.Ident
---import GF.Infra.Location
 import GF.Infra.Option
 import GF.Data.Operations
 import GF.Text.Pretty hiding (empty)
 import GF.Grammar.Lookup
---import GF.Grammar.Parser(runP)
 import GF.Grammar.Printer
 import GF.Grammar.Predef
 import GF.Grammar.Grammar hiding (Rule(..))
@@ -51,16 +48,8 @@ data QueryPattern = QueryPattern {
     idx :: String
 } deriving (Show)
 
--- mapping from UD to GF
-posmap = Map.fromList ([
-  ("NOUN", "N"), 
-  ("ADJ", "A"), 
-  ("ADV", "Adv"), 
-  ("DET", "Det"), 
-  ("ADP", "Prep"), 
-  ("NUM", "Numeral")])
 mapPOS fun = (mapOne (snd fun), mapOne (fst fun))
-  where mapOne f = (fromJust (Map.lookup (pos f) posmap))
+  where mapOne f = showIdent (posCat (fromJust (lookupUPOS (pos f))))
 
 
 --query :: Tree Node -> ((String, Maybe String), (String, Maybe String)) -> IO [(Node, Node)]
@@ -69,7 +58,7 @@ query trees fun = do
   res <- filter (\(t, e) -> matchEdges fun e) (edges t)
   return res
     
-learnPattern cnc gr mapping smarts pat name pattern = do
+learnPattern cfg cnc gr smarts pat name pattern = do
     let (pos1, pos2) = mapPOS pattern
     putStrLn ("== " ++ name ++ " ==" )
     
@@ -87,22 +76,21 @@ learnPattern cnc gr mapping smarts pat name pattern = do
           (n1, n2) <- pat
           return [(n1,Vr cn,n_ty),(n2,Vr ap,a_ty)]
         
-        cfg = CodeConfig [(Vr ap,a_ty),(Vr cn,n_ty)] -- argument types
-                         patts                       -- matching patterns
-                         mapping
-                         smarts
+        cctxt = CodeContext [(Vr ap,a_ty),(Vr cn,n_ty)] -- argument types
+                            patts                       -- matching patterns
+                            smarts
 
     --mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
 
     let res = fmap (Map.fromListWith (++)) $ runGenM $ do
-                patt <- anyOf (patterns cfg)
+                patt <- anyOf (patterns cctxt)
 
                 inh <- runGenM $ do
                           ((_,_,_,morpho,_),t,ty) <- anyOf patt
-                          findInh gr cfg morpho t ty
+                          findInh gr cctxt morpho t ty
 
                 (str,vs) <- buildStr [] (sortOn (\((id,_,_,_,_),_,_)->id) patt)
-                                        (\vs ((_,_,_,morpho,_),t,ty) -> findStr gr cfg morpho vs t ty)
+                                        (\vs ((_,_,_,morpho,_),t,ty) -> findStr gr cctxt morpho vs t ty)
                 return ((str,length vs,length inh),[(reverse vs,inh)])
     
     m <- case res of
@@ -246,20 +234,16 @@ type POS  = String
 type Node = (Int,String,POS,[(String,String)],String)
 
 
-data CodeConfig
-   = CodeConfig {
+data CodeContext
+   = CodeContext {
        args     :: [(Term,Type)],
        patterns :: [[(Node,Term,Type)]],
-       mapping  :: [(Either RawIdent (Ident,Ident),(String,String))],
        smarts   :: Map.Map QIdent [(QIdent,Context)]
      }
 
 noSmarts = Map.empty
 
 data TermName a = TermName Term (a -> Term)
-
-loadGrammar :: FilePath -> IO (ModuleName,SourceGrammar)
-loadGrammar fpath = batchCompile noOptions Nothing [fpath]
 
 readCONLL :: Config -> String -> IO [Tree Node]
 readCONLL cfg treebank = do
@@ -317,17 +301,14 @@ getFun name args f = (identS name, CncFun (Nothing) (Just (L NoLoc (getArgs args
     getArgs (arg:args) f = Abs Explicit (identS arg) (getArgs args f) 
     
 
-getLang cnc = drop (length (showIdent modname) - 3) (showIdent modname)
-  where MN modname = cnc
-
-getModule lang name jments = ppModule Qualified (MN (identS (name ++ lang)), ModInfo {jments = funs, msrc="", mstatus = MSComplete, mextend = [(MN (identS ("Res" ++ lang)), MIAll)], mwith=Nothing, mopens=[], mexdeps=[], mflags = noOptions, mtype = MTConcrete (MN  (identS name))})
+getModule cfg name jments = ppModule Qualified (MN (identS (cfgLangModule cfg name)), ModInfo {jments = funs, msrc="", mstatus = MSComplete, mextend = [(MN (identS (cfgLangModule cfg "Res")), MIAll)], mwith=Nothing, mopens=[], mexdeps=[], mflags = noOptions, mtype = MTConcrete (MN  (identS name))})
   where funs = Map.fromList jments
 
 
-combineTrees funName name wo mod lang [] argMap argNames = (Nothing, [])
-combineTrees funName name wo mod lang fun argMap argNames = (Just (main, [getFun funName argNames (R fields)]), concat addArgs)
+combineTrees cfg funName name wo mod [] argMap argNames = (Nothing, [])
+combineTrees cfg funName name wo mod fun argMap argNames = (Just (main, [getFun funName argNames (R fields)]), concat addArgs)
     where 
-        modname = fromJust (Map.lookup wo mod) ++ lang
+        modname = cfgLangModule cfg (fromJust (Map.lookup wo mod))
         main = fromJust (Map.lookup name mod)
         (fields, addArgs) = unzip (map (\x -> matchFields name wo modname x (Map.lookup x varTrees)) (fromJust (Map.lookup name argMap)))
         -- check that variation comes from word order variation
@@ -393,8 +374,8 @@ split sep (c:cs)
 findStr gr cfg morpho vs t (Sort s)
   | s == cStr                  = return (t,vs)
 findStr gr cfg morpho vs t (RecType fs) = do
-  (l@(LIdent id),_,ty) <- anyOf fs
-  morpho <- case [v | (Left lbl,v) <- mapping cfg, lbl==id] of
+  (l,_,ty) <- anyOf fs
+  morpho <- case [ud_tag t | t <- all_tags, label t==l] of
               (v:_) -> pop v morpho
               _     -> return morpho
   findStr gr cfg morpho vs (P t l) ty
@@ -413,7 +394,7 @@ findParam gr cfg morpho (QC q) = do
                                 ResParam (Just (L _ ps)) _ -> do (id,ctxt) <- anyOf ps
                                                                  return ((mn,id),ctxt)
                                 _                          -> raise $ render (ppQIdent Qualified q <+> "has no parameter values defined")
-  morpho <- case [v | (Right (_,con),v) <- mapping cfg, con==snd q] of
+  morpho <- case [ud_tag t | t <- all_tags, ident t==snd q] of
               (v:_) -> pop v morpho
               _     -> return morpho
   
@@ -423,8 +404,8 @@ findInh gr cfg morpho t ty@(QC q) = do
   v <- findParam gr cfg morpho ty
   return (t,v,ty)
 findInh gr cfg morpho t (RecType fs) = do
-  (l@(LIdent id),_,ty) <- anyOf fs
-  morpho <- case [v | (Left lbl,v) <- mapping cfg, lbl==id] of
+  (l,_,ty) <- anyOf fs
+  morpho <- case [ud_tag t | t <- all_tags, label t==l] of
               (v:_) -> pop v morpho
               _     -> return morpho
   findInh gr cfg morpho (P t l) ty
