@@ -16,6 +16,7 @@ import qualified Codec.Compression.GZip as GZip
 import Learner.RGL
 import Learner.Config
 import Learner.DecisionTree
+import Learner.AnalyticTenses
 import GF.Infra.Ident
 import GF.Grammar.Predef
 import GF.Grammar.Grammar
@@ -23,6 +24,7 @@ import GF.Grammar.Grammar
 options =
   [ Option "v" [] (NoArg (\cfg->cfg{cfgVerbose=True})) "verbose output"
   , Option [] ["min-lexical-forms"] (ReqArg (\s cfg->cfg{cfgMinForms=read s}) "number") "the minimum number of forms per analysis"
+  , Option [] ["analytic-tenses"] (NoArg (\cfg->cfg{cfgAnalyticTenses=True})) "check verbs for analytic tense forms"
   ]
 
 learn cfg = do

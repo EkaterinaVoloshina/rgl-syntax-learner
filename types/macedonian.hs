@@ -6,5 +6,6 @@ main = learnerMain ((defaultConfig "mk" "mkd" "macedonian")
                                            ["comparative"] -> [["indefinite","masculine","comparative"]]
                                            ["superlative"] -> [["indefinite","masculine","superlative"]]
                                            tags            -> [tags]
+                       , cfgAnalyticTenses = True
                        , cfgTreebanks = ["SUD_Macedonian-MTB"]
                        })
