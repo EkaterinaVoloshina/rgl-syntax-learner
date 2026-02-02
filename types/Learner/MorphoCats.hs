@@ -210,14 +210,14 @@ learnMorphoCats cfg attrs rgl ((pos,(tagsSet0,words)):rest) = do
       | otherwise         = x
 
 
-data PreParam = PPr Ident [(Tag,[PreParam])]
+data PreParam = PreParam Ident [(Tag,[PreParam])]
                 deriving (Eq,Show)
 
 toPreType (Leaf str_tags _) = []
 toPreType (Decision (ParamName name f) _ dts) =
   case [(fromJust (f v),toPreType dt) | (v,dt) <- Map.toList dts] of
     ((k,pps):todo) -> let (cs,pps') = combine [(k,[])] todo pps
-                      in PPr name cs : pps'
+                      in ppr name cs : pps'
   where
     combine done []              pps2 = (reverse done,pps2)
     combine done ((k,pps1):todo) pps2 =
@@ -225,22 +225,31 @@ toPreType (Decision (ParamName name f) _ dts) =
       in combine ((k,pps1'):map (\(k,pps2) -> (k,pps2++pps2')) done) todo pps
 
     intersect []                     []                     = ([],[],[])
-    intersect []                     (PPr name2 cs2 : pps2) =
+    intersect []                     (PreParam name2 cs2 : pps2) =
       let (pps1',pps2',pps) = intersect [] pps2
-      in (pps1',(PPr name2 cs2):pps2',pps)
-    intersect (PPr name1 cs1 : pps1) pps2                   =
+      in (pps1',(PreParam name2 cs2):pps2',pps)
+    intersect (PreParam name1 cs1 : pps1) pps2                   =
       case common_with pps2 of
         Just pps2 -> let (pps1',pps2',pps) = intersect pps1 pps2
-                     in (pps1',pps2',PPr name1 cs1 : pps)
+                     in (pps1',pps2',PreParam name1 cs1 : pps)
         Nothing   -> let (pps1',pps2',pps) = intersect pps1 pps2
-                     in (PPr name1 cs1 : pps1',pps2',pps)
+                     in (PreParam name1 cs1 : pps1',pps2',pps)
       where
         common_with []                    = Nothing
-        common_with (PPr name2 cs2 : pps2)
+        common_with (PreParam name2 cs2 : pps2)
           | name1==name2 && cs1==cs2      = Just pps2
           | otherwise                     = case common_with pps2 of
-                                              Just pps2 -> Just (PPr name2 cs2 : pps2)
+                                              Just pps2 -> Just (ppr name2 cs2 : pps2)
                                               Nothing   -> Nothing
+
+    ppr name [(sg,gt@[PreParam g _]),(pl,[])]
+      | showIdent (ident sg) == "Sg" &&
+        showIdent g  == "Gender" &&
+        showIdent (ident pl) == "Pl"
+                = PreParam (identS "GenNum") [(tag "GSg",gt),(tag "GPl",[])]
+      where
+        tag i = head [t | t <- all_tags, showIdent (ident t) == i]
+    ppr name cs = PreParam name cs
 
 
 learnWorstCase cfg rgl []                 = return rgl
@@ -291,8 +300,8 @@ genRes jments pos rs =
         escape '-' = '_'
         escape c   = c
 
-    jmentsAndType jments []                  = (jments,[])
-    jmentsAndType jments (PPr name ps : pps) =
+    jmentsAndType jments []                       = (jments,[])
+    jmentsAndType jments (PreParam name ps : pps) =
       let (jments1,ps') = mapAccumL (\jments (p,pps) -> let (jments',tys) = jmentsAndType jments pps in (jments',(p,tys))) jments ps
           info = ResParam (Just (noLoc [(ident p, [(Explicit,identW,ty) | ty <- pps]) | (p,pps) <- ps'])) Nothing
           (name',jments2) = case [name | (name, info') <- Map.toList jments1, info==info'] of
