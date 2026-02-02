@@ -1,5 +1,10 @@
 import Learner.Shell
 
 main = learnerMain ((defaultConfig "gsw" "gsw" "alemannic")
-                       { cfgTreebanks = ["SUD_Alemannic-DIVITAL"]
+                       { cfgUpdForms =
+                           \lemma pos forms ->
+                                case pos of
+                                  "noun" -> (["singular"],lemma) : forms
+                                  _      -> forms
+                       , cfgTreebanks = ["SUD_Alemannic-DIVITAL"]
                        })
