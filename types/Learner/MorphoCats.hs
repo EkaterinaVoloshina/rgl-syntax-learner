@@ -7,7 +7,7 @@ import System.Directory
 import System.Console.GetOpt
 import Data.Char (isSpace, isDigit, toUpper)
 import Data.Maybe (fromMaybe, fromJust, isNothing)
-import Data.List (sort,sortOn,intercalate,intersect,intercalate,mapAccumL)
+import Data.List (sort,sortOn,intercalate,intersect,intercalate,mapAccumL,(\\))
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.ByteString.Lazy as BS
@@ -20,6 +20,7 @@ import Learner.AnalyticTenses
 import GF.Infra.Ident
 import GF.Grammar.Predef
 import GF.Grammar.Grammar
+import Debug.Trace
 
 options =
   [ Option "v" [] (NoArg (\cfg->cfg{cfgVerbose=True})) "verbose output"
@@ -29,6 +30,7 @@ options =
 
 learn cfg = do
   dict <- readWiktionary cfg
+  reportUnknownTags dict
   let attrs    = (map toAttr . Map.toList . Map.fromListWith (++)) [(typ p,[p]) | p <- all_tags]
       tagsSets = toTagSets dict
   createDirectoryIfMissing True ("src" </> cfgLangName cfg)
@@ -126,6 +128,16 @@ readWiktionary cfg = do
       [(word,pos,tags,[(sort tags,form) | (tags0,form) <- forms, tags <- cfgUpdTags cfg tags0]) | (word,pos,tags,forms) <- es]
 
 
+reportUnknownTags dict
+  | Set.null unknown_tags = return ()
+  | otherwise             = putStrLn ("Unknown tags: "++show unknown_tags)
+  where
+    wikt_tags    = Set.fromList [wikt_tag t | t <- all_tags]
+    unknown_tags = Set.fromList [tag | (word,pos,tags,forms) <- dict
+                                     , (tags,form) <- forms
+                                     , tag <- tags
+                                     , not (Set.member tag wikt_tags)]
+
 data ParamName a = ParamName Ident (a->Maybe Tag)
 
 learnMorphoCats cfg attrs rgl []                            = do
@@ -180,8 +192,8 @@ learnMorphoCats cfg attrs rgl ((pos,(tagsSet0,words)):rest) = do
 
     iterateD []      = []
     iterateD tagsSet =
-      let dt = buildD attrs [(tags,tags) | tags <- tagsSet]
-          (tagsSet',dt') = prune [] dt
+      let (matched,dt) = buildD attrs [(tags,tags) | tags <- tagsSet]
+          (tagsSet',dt') = prune (tagsSet \\ map snd matched) dt
       in (foldl1 intersect dt',dt'):iterateD tagsSet'
       where
         prune vs dt@(Leaf tags _) = (vs,dt)

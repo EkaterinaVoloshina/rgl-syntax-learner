@@ -134,33 +134,35 @@ buildC atts dataset =
                                 })
 
 -- | Build a DecisionTree from the given training set. The number in the result is the accuracy.
-buildD :: Ord b => [Attribute n a] -> [(a,[b])] -> DecisionTree n a [b]
+buildD :: Ord b => [Attribute n a] -> [(a,[b])] -> ([(a,[b])], DecisionTree n a [b])
 buildD atts []      = error "Cannot learn without data"
-buildD atts dataset = build dataset
+buildD atts dataset = build [] dataset
   where
-    build dataset =
+    build matched dataset =
       case bestAttributeD dataset atts of
-        (0,  _         ) -> let bs = map (\(_,b)->(-length b,b)) dataset
-                                dominantLabel = snd (head (sortOn fst bs))
-                                total = Set.size (Set.fromList (concatMap snd bs))
+        (0,  _         ) -> let bs = map (\x@(_,b)->(-length b,x)) dataset
+                                x@(_,dominantLabel) = snd (head (sortOn fst bs))
+                                total = Set.size (Set.fromList (concatMap (snd.snd) bs))
                                 den   = - sum (map fst bs)
-                            in Leaf dominantLabel (fromIntegral den / fromIntegral total)
-        (inf,P n proj p) -> let children = Map.map build p -- recursivly build the children
-                            in Decision {
+                            in (x:matched,Leaf dominantLabel (fromIntegral den / fromIntegral total))
+        (inf,P n proj p) -> let (matched',children) = mapAccumL build matched p -- recursivly build the children
+                            in (matched'
+                               ,Decision {
                                   name     = n,
                                   proj     = proj,
                                   children = children
-                               }
+                                })
         (inf,PC n proj k l r)
-                         -> let left  = build l -- recursivly build the children
-                                right = build r -- recursivly build the children
-                            in DecisionC {
+                         -> let (matched1,left ) = build matched  l -- recursivly build the children
+                                (matched2,right) = build matched1 r -- recursivly build the children
+                            in (matched2
+                               ,DecisionC {
                                   name = n,
                                   proj = proj,
                                   key  = k,
                                   left = left,
                                   right= right
-                               }
+                                })
 
 -- | Predicts the result for a given input
 predict :: DecisionTree n a b -> a -> Maybe b
