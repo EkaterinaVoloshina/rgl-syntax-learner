@@ -144,6 +144,10 @@ separateDerivationalMorphology cfg dict = do
       | not (null pair) = ((word,pair) : pairs,(word,pos,tags,forms'))
       where
         (pair,forms') = partition (\(tags,form) -> tags == ["abstract-noun"]) forms
+    separate pairs e@(word,pos@"name",tags,forms)
+      | not (null pair) = ((word,pair) : pairs,(word,pos,tags,forms'))
+      where
+        (pair,forms') = partition (\(tags,form) -> tags == ["masculine"] || tags == ["feminine"] || elem "adjective" tags) forms
     separate pairs e@(word,pos@"noun",tags,forms)
       | not (null pair) = ((word,pair) : pairs,(word,pos,tags,forms'))
       where
