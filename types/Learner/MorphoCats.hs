@@ -7,7 +7,7 @@ import System.Directory
 import System.Console.GetOpt
 import Data.Char (isSpace, isDigit, toUpper)
 import Data.Maybe (fromMaybe, fromJust, isNothing)
-import Data.List (sort,sortOn,intercalate,intersect,intercalate,mapAccumL,(\\))
+import Data.List
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.ByteString.Lazy as BS
@@ -30,6 +30,7 @@ options =
 
 learn cfg = do
   dict <- readWiktionary cfg
+  dict <- separateDerivationalMorphology cfg dict
   reportUnknownTags dict
   let attrs    = (map toAttr . Map.toList . Map.fromListWith (++)) [(typ p,[p]) | p <- all_tags]
       tagsSets = toTagSets dict
@@ -67,9 +68,9 @@ readWiktionary cfg = do
             length es `seq` return es
     else withStatus ("Extracting data from raw-wiktextract-data.jsonl.gz for "++toTitle (cfgLangName cfg)) $ do
             content <- fmap GZip.decompress (BS.readFile "../../rgl-learner/raw-wiktextract-data.jsonl.gz")
-            let es = updateTags (extractEntries (BS.lines content) [])
+            let es = extractEntries (BS.lines content) []
             writeFile fpath (unlines [intercalate "\t" (word:pos:intercalate ";" tags:concatMap (\(tags,form) -> [form,intercalate ";" tags]) forms) | (word,pos,tags,forms) <- es])
-            return es
+            return (updateTags es)
   where
     toTitle []     = []
     toTitle (c:cs) = toUpper c : cs
@@ -98,7 +99,8 @@ readWiktionary cfg = do
                                                   , form /= "-" &&
                                                     tags /= ["table-tags"] &&
                                                     tags /= ["inflection-template"] &&
-                                                    not (elem "error-unrecognized-form" tags)])
+                                                    not (elem "error-unrecognized-form" tags) &&
+                                                    not (elem "romanization" tags)])
 
         wc c | isSpace c = ' '
              | otherwise = c
@@ -125,7 +127,28 @@ readWiktionary cfg = do
                       (x:xs) -> (c:x):xs
 
     updateTags es =
-      [(word,pos,tags,[(sort tags,form) | (tags,form) <- cfgUpdForms cfg word pos forms, not (elem "romanization" tags)]) | (word,pos,tags,forms) <- es]
+      [(word,pos,tags,[(sort tags,form) | (tags,form) <- cfgUpdForms cfg word pos forms]) | (word,pos,tags,forms) <- es]
+
+
+separateDerivationalMorphology cfg dict = do
+  let (pairs,dict') = mapAccumL separate [] dict
+  unless (null pairs) $ do
+    putStrLn ("Found "++show (length pairs)++" derivational pairs")
+    writeFile ("data" </> cfgLangName cfg </> "derivational-pairs.txt")
+              (unlines [word1++"\t"++show tags++"\t"++word2
+                          | (word1,forms) <- pairs
+                          , (tags,word2) <- forms])
+  return dict'
+  where
+    separate pairs e@(word,pos@"adj",tags,forms)
+      | not (null pair) = ((word,pair) : pairs,(word,pos,tags,forms'))
+      where
+        (pair,forms') = partition (\(tags,form) -> tags == ["abstract-noun"]) forms
+    separate pairs e@(word,pos@"noun",tags,forms)
+      | not (null pair) = ((word,pair) : pairs,(word,pos,tags,forms'))
+      where
+        (pair,forms') = partition (\(tags,form) -> tags == ["masculine"] || tags == ["feminine"] || elem "adjective" tags) forms
+    separate pairs e = (pairs,e)
 
 
 reportUnknownTags dict
