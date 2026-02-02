@@ -125,7 +125,7 @@ readWiktionary cfg = do
                       (x:xs) -> (c:x):xs
 
     updateTags es =
-      [(word,pos,tags,[(sort tags,form) | (tags,form) <- cfgUpdForms cfg word pos forms]) | (word,pos,tags,forms) <- es]
+      [(word,pos,tags,[(sort tags,form) | (tags,form) <- cfgUpdForms cfg word pos forms, not (elem "romanization" tags)]) | (word,pos,tags,forms) <- es]
 
 
 reportUnknownTags dict
