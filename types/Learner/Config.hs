@@ -146,7 +146,7 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "instrumental"    ("Case","Ins")             "instrumental"  "Instr"           "Case"
   ,tag "comitative"      ("Case","Com")             "comitative"    "Com"             "Case"
   ,tag "abessive"        ("Case","Abe")             "abessive"      "Abes"            "Case"
-  ,tag "comparative"     ("Case","Cmp")             "comparative"   "Cmp"             "Case"
+  ,tag "comparative-case"("Case","Cmp")             "comparative"   "Comp"            "Case"
   ,tag "causative"       ("Case","Cau")             "causative"     "Causative"       "Case"
   ,tag "benefactive"     ("Case","Bnf")             "benefactive"   "Benef"           "Case"
   ,tag "associative"     ("Case","Ass")             "associative"   "Assoc"           "Case"
