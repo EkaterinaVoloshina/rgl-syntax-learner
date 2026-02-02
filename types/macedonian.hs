@@ -2,10 +2,12 @@
 import Learner.Shell
 
 main = learnerMain ((defaultConfig "mk" "mkd" "macedonian")
-                       { cfgUpdTags   = \case
-                                           ["comparative"] -> [["indefinite","masculine","comparative"]]
-                                           ["superlative"] -> [["indefinite","masculine","superlative"]]
-                                           tags            -> [tags]
+                       { cfgUpdForms  =
+                            \_ _ ->
+                              map (\case
+                                      (["comparative"],w) -> (["indefinite","masculine","comparative"],w)
+                                      (["superlative"],w) -> (["indefinite","masculine","superlative"],w)
+                                      x                   -> x)
                        , cfgAnalyticTenses = True
                        , cfgTreebanks = ["SUD_Macedonian-MTB"]
                        })

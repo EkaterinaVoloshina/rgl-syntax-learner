@@ -13,7 +13,7 @@ data Config
       , cfgVerbose  :: Bool
       , cfgMinForms :: Int
       , cfgAnalyticTenses :: Bool
-      , cfgUpdTags  :: [String] -> [[String]]
+      , cfgUpdForms :: String -> String -> [([String],String)] -> [([String],String)]
       , cfgTreebanks:: [String]
       }
 
@@ -29,7 +29,7 @@ defaultConfig iso2 iso3 name =
          , cfgVerbose = False
          , cfgMinForms = 5
          , cfgAnalyticTenses = False
-         , cfgUpdTags = (:[])
+         , cfgUpdForms = \word pos forms -> forms
          , cfgTreebanks = []
          }
 
