@@ -99,6 +99,7 @@ readWiktionary cfg = do
                                                   , form /= "-" &&
                                                     tags /= ["table-tags"] &&
                                                     tags /= ["inflection-template"] &&
+                                                    tags /= ["canonical"] &&
                                                     not (elem "error-unrecognized-form" tags) &&
                                                     not (elem "romanization" tags)])
 
@@ -127,7 +128,7 @@ readWiktionary cfg = do
                       (x:xs) -> (c:x):xs
 
     updateTags es =
-      [(word,pos,tags,[(sort tags,form) | (tags,form) <- cfgUpdForms cfg word pos forms]) | (word,pos,tags,forms) <- es]
+      [(word,pos',tags,[(sort tags,form) | (tags,form) <- cfgUpdForms cfg word pos' forms]) | (word,pos,tags,forms) <- es, let pos'=cfgUpdPOS cfg word pos]
 
 
 separateDerivationalMorphology cfg dict = do

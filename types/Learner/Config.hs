@@ -13,6 +13,7 @@ data Config
       , cfgVerbose  :: Bool
       , cfgMinForms :: Int
       , cfgAnalyticTenses :: Bool
+      , cfgUpdPOS   :: String -> String -> String
       , cfgUpdForms :: String -> String -> [([String],String)] -> [([String],String)]
       , cfgTreebanks:: [String]
       }
@@ -29,6 +30,7 @@ defaultConfig iso2 iso3 name =
          , cfgVerbose = False
          , cfgMinForms = 5
          , cfgAnalyticTenses = False
+         , cfgUpdPOS = \word pos -> pos
          , cfgUpdForms = \word pos forms -> forms
          , cfgTreebanks = []
          }
@@ -149,6 +151,7 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "comitative"      ("Case","Com")             "comitative"    "Com"             "Case"
   ,tag "abessive"        ("Case","Abe")             "abessive"      "Abes"            "Case"
   ,tag "essive"          ("Case","Ess")             "essive"        "Ess"             "Case"
+  ,tag "inessive"        ("Case","Ine")             "inessive"      "Ine"             "Case"
   ,tag "comparative-case"("Case","Cmp")             "comparative"   "Comp"            "Case"
   ,tag "causative"       ("Case","Cau")             "causative"     "Causative"       "Case"
   ,tag "benefactive"     ("Case","Bnf")             "benefactive"   "Benef"           "Case"
