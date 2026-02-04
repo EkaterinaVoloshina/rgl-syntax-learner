@@ -195,3 +195,11 @@ all_tags = flip (zipWith id) [0..] $
   ]
   where
     tag wikt_tag umorph_tag label ident typ = Tag wikt_tag umorph_tag (ident2label (identS "label")) (identS ident) (identS typ)
+
+
+def_tags = filter_defaults identW all_tags
+  where
+    filter_defaults prev [] = []
+    filter_defaults prev (t:ts)
+      | prev /= typ t = t : filter_defaults (typ t) ts
+      | otherwise     = filter_defaults prev ts

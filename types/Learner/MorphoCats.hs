@@ -20,7 +20,6 @@ import Learner.AnalyticTenses
 import GF.Infra.Ident
 import GF.Grammar.Predef
 import GF.Grammar.Grammar
-import Debug.Trace
 
 options =
   [ Option "v" [] (NoArg (\cfg->cfg{cfgVerbose=True})) "verbose output"
@@ -181,17 +180,24 @@ learnMorphoCats cfg attrs rgl []                            = do
 learnMorphoCats cfg attrs rgl ((pos,(tagsSet0,words)):rest) = do
   case lookupPOS pos of
     Just pos -> do putStrLn ("=== "++posWiktTag pos)
-                   let dts0 = iterateD [tags | (tags,count) <- Map.toList tagsSet0, count > cfgMinForms cfg]
-                       dts  = map stack (iterate attrs dts0)
-                   when (cfgVerbose cfg) $
+                   let (mapping, tagsSet1, words1) = retagAssimilates (Map.toList tagsSet0) words
+                       dts0 = iterateD [tags | (tags,count) <- tagsSet1, count > cfgMinForms cfg]
+                       dts = map stack (iterate attrs dts0)
+                   when (cfgVerbose cfg) $ do
+                     forM_ mapping $ \(tags1,tags2,xys) -> do
+                       putStrLn ("map "++show tags1++" to "++show tags2++
+                                 if null xys
+                                   then ""
+                                   else " incompatible for "++show (length xys)++": "++unwords [x++"<>"++y | (x,y) <- xys])
+                     forM_ tagsSet1 $ print
                      forM_ dts $ \(tags,dt) -> do
                        print tags
                        putStrLn (drawDecisionTree (\(ParamName n _)->showIdent n) (\(ParamName n f)->maybe "?" (showIdent . ident) . f) show dt)
                    let rs   = map (\(tags,dt) -> (tags,toPreType dt)) dts
                        rgl' = rgl{rglRes=(rglRes rgl){jments=genRes  (jments (rglRes  rgl)) pos rs}
                                  ,rglCat=(rglCat rgl){jments=genCat (jments (rglCat rgl)) pos}
-                                 ,rglDict=(rglDict rgl){jments=genDict (jments (rglDict rgl)) pos words dts}
-                                 ,rglDictAbs=(rglDictAbs rgl){jments=genDictAbs (jments (rglDictAbs rgl)) pos words dts}
+                                 ,rglDict=(rglDict rgl){jments=genDict (jments (rglDict rgl)) pos words1 dts}
+                                 ,rglDictAbs=(rglDictAbs rgl){jments=genDictAbs (jments (rglDictAbs rgl)) pos words1 dts}
                                  }
                    length dts `seq` learnMorphoCats cfg attrs rgl' rest
     Nothing  -> learnMorphoCats cfg attrs rgl rest
@@ -227,8 +233,7 @@ learnMorphoCats cfg attrs rgl ((pos,(tagsSet0,words)):rest) = do
         prune vs dt@(Leaf tags _) = (vs,dt)
         prune vs (Decision n@(ParamName name f) proj dts) =
           case fmap (\((k,dt),dts) -> ((f k,dt),dts)) (Map.minViewWithKey dts) of
-            Just ((Nothing,dt),dts) -> let def_tag = proj (take 1 [wikt_tag t | t <- all_tags, typ t == name])
-                                       in let (vs',dts') = mapAccumL prune vs dts
+            Just ((Nothing,dt),dts) -> let (vs',dts') = mapAccumL prune vs dts
                                           in unsingle (values dt++vs',Decision n proj dts')
             _                       -> let (vs',dts') = mapAccumL prune vs dts
                                        in unsingle (vs',Decision n proj dts')
@@ -369,3 +374,56 @@ density :: Ord b => [[b]] -> Double
 density bs = fromIntegral (sum (map length bs)) / fromIntegral total
   where
     total = Set.size (Set.fromList (concat bs))
+
+retagAssimilates tagsSet words =
+  let (mapping,tagsSet') = traverseAll [] [] tagsSet
+      words' = [(word,tags,(lemma_tags,word):map (retag mapping) forms) | (word,tags,forms) <- words]
+      (lemma_tags,_) =
+         (head . sortOn snd . Map.toList . Map.fromListWith (+))
+            [(tags,-1) | (word,_,forms) <- words, (tags,form) <- forms, word==form]
+  in (mapping,tagsSet',words')
+  where
+    traverseAll mapping prev []                          = (mapping,prev)
+    traverseAll mapping prev (pair@(tags,count):tagsSet) =
+      case assimilate tagsSet of
+        Just (xys,tags',tagsSet) -> traverseAll ((tags,tags',xys) : mapping) prev tagsSet
+        Nothing                  -> case assimilate prev of
+                                      Just (xys,tags',prev) -> traverseAll ((tags,tags',xys) : mapping) prev tagsSet
+                                      Nothing               -> traverseAll mapping (pair : prev) tagsSet
+      where
+        assimilate []         = Nothing
+        assimilate (pair@(tags',count'):tagsSet)
+          | subset tags tags' &&
+            fraction < 0.005  = case icmpt_ws of
+                                  []  -> Just ([],tags',(tags',count+count'):tagsSet)
+                                  xys -> case assimilate tagsSet of
+                                           Just (xys',tags',tagsSet)
+                                             | length xys' < length xys -> Just (xys',tags',tagsSet)
+                                           _                            -> Just (xys,tags',(tags',count+count'):tagsSet)
+          | otherwise         = case assimilate tagsSet of
+                                  Just (tags',xys,tagsSet) -> Just (tags',xys,pair:tagsSet)
+                                  Nothing                  -> Nothing
+          where
+            icmpt_ws = incompat tags tags'
+            fraction = fromIntegral (2 * length icmpt_ws) / fromIntegral (count+count')
+
+        subset []     []     = True
+        subset (x:xs) (y:ys)
+          | x == y           = subset xs ys
+        subset    xs  (y:ys)
+          | elem y (map wikt_tag def_tags)
+                             = subset xs ys
+        subset    xs     ys  = False
+
+        incompat tags1 tags2 =
+          [xy | (word,tags,forms) <- words, xy <- lookup tags1 forms `match` lookup tags2 forms]
+          where
+            match (Just x) (Just y)
+              | x == y              = []
+              | otherwise           = [(x,y)]
+            match _        _        = []
+
+    retag mapping x@(tags,form) =
+      case [(tags2,form) | (tags1,tags2,_) <- mapping, tags1==tags] of
+        (x:_) -> x
+        []    -> x
