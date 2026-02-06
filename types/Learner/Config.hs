@@ -65,6 +65,7 @@ pos_tags =
   ,POS "prep"      "ADP"  (identS "Preposition")  (identS "Prep")
   ,POS "verb"      "VERB" (identS "Verb")         (identS "V")
   ,POS "num"       "NUM"  (identS "Numrl")        (identS "Numeral")
+  ,POS "pron"      "PRON" (identS "Pronoun")      (identS "Pron")
   ]
 
 lookupPOS :: String -> Maybe POS
