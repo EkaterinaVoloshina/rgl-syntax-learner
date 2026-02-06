@@ -18,7 +18,7 @@ import GF.Grammar.Printer
 import GF.Grammar.Predef
 import GF.Grammar.Grammar hiding (Rule(..))
 import GF.Grammar.Lockfield
-import GF.Grammar.Macros (term2patt,composSafeOp,typeFormCnc)
+import GF.Grammar.Macros (termForm,composSafeOp,typeFormCnc)
 import GF.Compile
 import System.Exit
 import System.Process
@@ -196,6 +196,12 @@ learnPattern cfg cnc gr smarts pat name pattern = do
            (xs,[]) -> t
            (xs,ys) -> let x = identS "x"
                       in S (T TRaw (cs0++[(PV x,Vr x)])) t
+      where
+        term2patt :: Term -> Err Patt
+        term2patt trm = do
+          ([], QC c, aa) <- termForm trm
+          aa' <- mapM term2patt aa
+          return (PP c aa')
 
     substitute subst (Meta i) =
       case lookup i subst of
