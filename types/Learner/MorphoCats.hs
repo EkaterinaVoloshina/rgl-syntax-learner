@@ -366,7 +366,7 @@ genDictAbs jments pos []                       dts = jments
 genDictAbs jments pos ((word,tags,forms):rest) dts
   | elem "form-of" tags = genDictAbs jments pos rest dts
   | otherwise =
-      let jments' = Map.insert (identS (word++"_"++showIdent (posCat pos))) (AbsFun (Just (noLoc (Cn (posCat pos)))) (Just 0) (Just []) Nothing) jments
+      let jments' = Map.insert (identS (word++"_"++showIdent (posCat pos))) (AbsFun (Just (noLoc (Cn (posCat pos)))) (Just (0,[]))) jments
       in genDictAbs jments' pos rest dts
 
 
