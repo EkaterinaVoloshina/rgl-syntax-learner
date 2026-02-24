@@ -1,12 +1,12 @@
-module Learner.CodeGen
-              (readCONLL,Node(..),ppNode,drawTree,
+module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                identS,Ident,
-               rawIdentS,RawIdent,
-               noSmarts,
-               learnPattern, query, getPosFun, 
+               rawIdentS,RawIdent, unionPatts,
+               noSmarts, lookupTerm,
+               learnPattern, query, getPosFun, getIds,
                getFun, getModule, matchFields,
-               combineTrees, getNewType, 
-               QueryPattern(..)) where
+               combineTrees, mapPOS, getNewType, 
+               getOneField, defArt, indefArt, defQuant, createArt, createNum,
+               QueryPattern(..), Val(..)) where
 
 import Prelude hiding ((<>))
 import GF.Infra.Ident
@@ -42,14 +42,14 @@ data Val = Match String | Not String  deriving (Show)
 type Feat = (String, Val)
 
 data QueryPattern = QueryPattern {
-    pos :: String,
+    pos :: Maybe [String],
     rel :: Maybe String, 
     morpho :: Maybe [Feat],
     idx :: String
 } deriving (Show)
 
 mapPOS fun = (mapOne (snd fun), mapOne (fst fun))
-  where mapOne f = showIdent (posCat (fromJust (lookupUPOS (pos f))))
+  where mapOne f = showIdent (posCat (fromJust (lookupUPOS (head (fromJust (pos f))))))
 
 
 --query :: Tree Node -> ((String, Maybe String), (String, Maybe String)) -> IO [(Node, Node)]
@@ -58,7 +58,7 @@ query trees fun = do
   res <- filter (\(t, e) -> matchEdges fun e) (edges t)
   return res
     
-learnPattern cfg cnc gr smarts pat name pattern = do
+learnPattern cfg cnc gr smarts pat name pattern pos = do
     let (pos1, pos2) = mapPOS pattern
     putStrLn ("== " ++ name ++ " ==" )
     
@@ -137,18 +137,16 @@ learnPattern cfg cnc gr smarts pat name pattern = do
     let (trees, fsM) = unzip fieldsM 
     if (null trees) then do
       putStrLn "No examples of such construction"
-      return ([], [])
+      return ([], [], Empty)
     else do 
       let keepN = filterFields cn (getFields nTs) (concat fsM)
       let keepA = filterFields ap (getFields aTs) (concat fsM)
-      let lincatCN = RecType (filter (\(LIdent idx,_, _) -> showRawIdent idx `elem` keepN) nTs)
-      --print (pp lincatCN)
-      -- get fields to be filled 
-      -- match with trees
-      -- if there exists something else make a new parameter?
+      let lincat = if pos == 0 then RecType (filter (\(LIdent idx, _, _) -> showRawIdent idx `elem` keepN) nTs) else RecType (filter (\(LIdent idx, _, _) -> showRawIdent idx `elem` keepA) aTs)
+      
+      -- print trees
       let mappedTrees = map (\t -> (getOneIdent (unpackT (fst t)), t)) trees
 
-      return (mappedTrees, [(showIdent cn, keepN), (showIdent ap, keepA)])
+      return (mappedTrees, [(showIdent cn, keepN), (showIdent ap, keepA)], lincat)
        
 
   where
@@ -164,6 +162,7 @@ learnPattern cfg cnc gr smarts pat name pattern = do
     getOneIdent (S s@(P _ _) _) = getOneIdent s
     getOneIdent (S _ s@(S _ _)) = getOneIdent s
     getOneIdent (S _ s@(P _ _)) = getOneIdent s
+    getOneIdent (P p@(P _ _) _) = getOneIdent p
     getOneIdent (P (Vr idx) (LIdent field)) = [(showIdent idx, showRawIdent field)]
     getOneIdent (S (T _ t) _) = concat (map getTerm t)
     getOneIdent _  = []
@@ -287,8 +286,14 @@ readCONLL cfg treebank = do
           case break (=='=') s of
             (x,'=':y) -> (x,y)
 
-matchEdges (p1, p2) (n1@(_,_,pos1,_,rel1),n2@(_,_,pos2,_,rel2)) = pos p1 == pos1 && pos p2 == pos2 && checkRel p1 rel1 && checkRel p2 rel2
-  where checkRel p r = (rel p == Nothing) || fromJust (rel p) == r
+matchEdges (p1, p2) (n1@(_,_,pos1,m1,rel1),n2@(_,_,pos2,m2,rel2)) = checkPos (pos p1) pos1 && 
+                    checkPos (pos p2) pos2 && checkRel (rel p1) rel1 && checkRel (rel p2) rel2 && checkMorpho (morpho p1) m1 && checkMorpho (morpho p2) m2
+  where checkRel p r = isNothing p || fromJust p == r
+        checkMorpho q e = isNothing q || and (map (\m -> checkFeat m e) (fromJust q))
+        checkFeat (feat, Match val) m2 = (feat, val) `elem` m2
+        checkFeat (feat, Not val) m2 = (feat, val) `notElem` m2
+        checkPos pos p = isNothing pos || p `elem` (fromJust) pos
+   
    
 -- | functions to create a correct representation of syntax
 --getPosFun :: String -> String -> Map.Map String [String] -> Term
@@ -307,9 +312,51 @@ getFun name args f = (identS name, CncFun (Nothing) (Just (L NoLoc (getArgs args
     getArgs [] f = f 
     getArgs (arg:args) f = Abs Explicit (identS arg) (getArgs args f) 
     
-
-getModule cfg name jments = ppModule Qualified (MN (identS (cfgLangModule cfg name)), ModInfo {jments = funs, msrc="", mstatus = MSComplete, mextend = [(MN (identS (cfgLangModule cfg "Res")), MIAll)], mwith=Nothing, mopens=[], mexdeps=[], mflags = noOptions, mtype = MTConcrete (MN  (identS name))})
+getModule lang name jments = ppModule Unqualified (MN (identS (name ++ lang)), ModInfo {jments = funs, msrc="", mstatus = MSComplete, mextend = [(MN (identS ("Cat" ++ lang)), MIAll)], mwith=Nothing, mopens=[OSimple (MN (identS ("Res" ++ lang)))], mexdeps=[], mflags = noOptions,  mtype = MTConcrete (MN  (identS name))})
   where funs = Map.fromList jments
+
+lookupTerm cnc gr idx fs = case lookupResDef gr ((MN (identS cnc)),identS idx) of
+    Ok (QC (_,m))   -> ((showIdent m):fs)
+    Bad msg -> fs
+
+-- creates a placeholder 
+artFields fields def | "Species" `elem` fields = [(LIdent (rawIdentS "s"), ((Nothing, Empty), Sort (identS "Str"))), (LIdent (rawIdentS "sp"), ((Nothing, Cn (identS def)), (Sort (identS ("Species")))))] 
+artFields fields def | otherwise               = [(LIdent (rawIdentS "s"), ((Nothing, Empty), Sort (identS "Str")))]
+
+createPlaceholder name value fields = (getFun name [] (R fs), tp)
+    where (fs, tp) = unzip $ map (\(l, (val, ty)) -> ((l, val), (l, [], ty))) fields
+
+createNum name value = createPlaceholder name value fields
+    where fields = [(LIdent (rawIdentS "s"), ((Nothing, Empty), Sort (identS "Str"))), (LIdent (rawIdentS "n"), ((Nothing, Cn (identS value)), Sort (identS "Number")))]
+
+createArt name value fields = createPlaceholder name value (artFields fields value)
+
+indefArt fields = createArt "IndefArt" "Indef" fields
+defArt fields = createArt "DefArt" "Def" fields
+-- concat in s; copy def
+
+defQuant fields num art = (getFun "DetQuant" ["det", "num"] (R (map (\x -> concatFields x ("det", fs2) ("num", fs1)) (nub $ fs1 ++ fs2))), typ)
+        
+  where 
+    fs typ = map (\(LIdent l, _, _) -> showRawIdent l) typ
+    fs1 = fs num 
+    fs2 = fs art
+
+    typ = nub $ num ++ art
+    
+    concatFields f (id1, fs1) (id2, fs2) | f `elem` fs1 && f `elem` fs2 = (LIdent (rawIdentS f), (Nothing, C (P (Vr (identS id1)) (LIdent (rawIdentS f))) (P (Vr (identS id2)) (LIdent (rawIdentS f)))))
+    concatFields f (id1, fs1) (id2, fs2) | f `elem` fs1 = getOneField f id1
+    concatFields f (id1, fs1) (id2, fs2) | f `elem` fs2 = getOneField f id2
+
+getOneField f arg = (LIdent (rawIdentS f), (Nothing, P (Vr (identS arg)) (LIdent (rawIdentS f))))
+
+-- helper functions
+unionPatts (patts1, p1) (patts2, p2) = filter (\p -> (getPosition p p2) `elem` patts1') patts2 
+    where 
+        getPosition patt 0 = fst patt
+        getPosition patt 1 = snd patt
+
+        patts1' = getPosition (unzip patts1) p1
 
 
 combineTrees cfg funName name wo mod [] argMap argNames = (Nothing, [])
@@ -332,10 +379,13 @@ matchFields name wo mod field (Just defs) = getDefs name wo mod field (unzip def
         getDefs name wo mod field (order, (def1:def2:rest)) | otherwise               =  ((LIdent (rawIdentS field), (Nothing, S (T TRaw [(PP (MN (identS mod), identS "pre") [] , fst def1), (PP (MN (identS mod), identS "post") [] , fst def2)]) (P (Vr (identS wo)) (LIdent (rawIdentS "wo"))))), [(wo, ["wo"])])
 
 getNewType fields [] base = []       
-getNewType fields ((def, tree):funs) base | el `elem` fields = ((el, [(map fst def, tree)]):(getNewType fields funs base))
+getNewType fields ((def, tree):funs) base | el `notElem` fields = ((el, [(map fst def, tree)]):(getNewType fields funs base))
   where el = snd (head (filter (\(x, a) -> x == base) def))
-getNewType fields ((def, tree):funs) base | otherwise = (("s", [(map fst def, tree)]):(getNewType fields funs base))
+getNewType fields ((def, tree):funs) base | otherwise = (("s", [(map fst def, tree)]):(getNewType fields funs base)) 
 
+--getNewType ((LIdent idx, typ):fields) funs base = base
+
+getIds typ = map (\(LIdent idx,_,_) -> showRawIdent idx) typ
 getIdent (C s1 s2) = getIdent s1 ++ getIdent s2
 getIdent (S s1@(S _ _) s2@(S _ _)) = getIdent s1 ++ getIdent s2
 getIdent (S s1@(S _ _) s2@(P _ _)) = getIdent s1 ++ getIdent s2
@@ -349,7 +399,7 @@ getIdent (S (T _ t) _) = concat (map getTerm t)
 getIdent _  = []
 
 getTerm (PP _ _, s@(S _ _)) = getIdent s
-getTerm (PP _ pp, _) = []
+getTerm _ = []
 
 unpackT (T _ ((_, c@(C _ _)):ts)) = c
 unpackT (T _ ((_, t@(T _ _)):ts)) = unpackT t
