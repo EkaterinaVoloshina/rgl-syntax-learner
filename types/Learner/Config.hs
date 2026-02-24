@@ -195,7 +195,7 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "inanimate"       ("Animacy","Inam")         "inanimate"     "Inanimate"       "Animacy"
   ]
   where
-    tag wikt_tag umorph_tag label ident typ = Tag wikt_tag umorph_tag (ident2label (identS "label")) (identS ident) (identS typ)
+    tag wikt_tag umorph_tag label ident typ = Tag wikt_tag umorph_tag (ident2label (identS label)) (identS ident) (identS typ)
 
 
 def_tags = filter_defaults identW all_tags
