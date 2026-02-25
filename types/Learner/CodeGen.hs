@@ -9,7 +9,7 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                QueryPattern(..), Val(..)) where
 
 import Prelude hiding ((<>))
-import GF.Infra.Ident
+import GF.Infra.Ident hiding (isPrefixOf)
 import GF.Infra.Option
 import GF.Data.Operations
 import GF.Text.Pretty hiding (empty)
@@ -27,7 +27,7 @@ import System.Directory
 import Data.Tree
 import Data.Maybe hiding (fromList)
 import Data.Char(toLower)
-import Data.List (sortOn,mapAccumL,partition,nub)
+import Data.List (sortOn,mapAccumL,partition,nub,isPrefixOf,isInfixOf)
 import Control.Monad
 import Control.Applicative hiding (Const)
 import qualified Data.Set as Set
@@ -80,8 +80,9 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
                             patts                       -- matching patterns
                             smarts
 
-    --mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
+   -- mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
 
+    
     let res = fmap (Map.fromListWith (++)) $ runGenM $ do
                 patt <- anyOf (patterns cctxt)
 
@@ -97,6 +98,7 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
       Ok m    -> return m
       Bad msg -> fail msg
     
+    print m
 
     fieldsM <- forM (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
     -- print (ppTerm Unqualified 0 t0)
@@ -143,7 +145,6 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
       let keepA = filterFields ap (getFields aTs) (concat fsM)
       let lincat = if pos == 0 then RecType (filter (\(LIdent idx, _, _) -> showRawIdent idx `elem` keepN) nTs) else RecType (filter (\(LIdent idx, _, _) -> showRawIdent idx `elem` keepA) aTs)
       
-      -- print trees
       let mappedTrees = map (\t -> (getOneIdent (unpackT (fst t)), t)) trees
 
       return (mappedTrees, [(showIdent cn, keepN), (showIdent ap, keepA)], lincat)
@@ -292,7 +293,7 @@ matchEdges (p1, p2) (n1@(_,_,pos1,m1,rel1),n2@(_,_,pos2,m2,rel2)) = checkPos (po
         checkMorpho q e = isNothing q || and (map (\m -> checkFeat m e) (fromJust q))
         checkFeat (feat, Match val) m2 = (feat, val) `elem` m2
         checkFeat (feat, Not val) m2 = (feat, val) `notElem` m2
-        checkPos pos p = isNothing pos || p `elem` (fromJust) pos
+        checkPos pos p = isNothing pos || p `elem` (fromJust pos)
    
    
 -- | functions to create a correct representation of syntax
@@ -320,19 +321,27 @@ lookupTerm cnc gr idx fs = case lookupResDef gr ((MN (identS cnc)),identS idx) o
     Bad msg -> fs
 
 -- creates a placeholder 
-artFields fields def | "Species" `elem` fields = [(LIdent (rawIdentS "s"), ((Nothing, Empty), Sort (identS "Str"))), (LIdent (rawIdentS "sp"), ((Nothing, Cn (identS def)), (Sort (identS ("Species")))))] 
+artFields fields def | "Species" `elem` fields = [(LIdent (rawIdentS "s"), ((Nothing, Empty), Sort (identS "Str"))), (LIdent (rawIdentS "sp"), ((Nothing, getType def), (Sort (identS ("Species")))))] 
+  where 
+    w = words def 
+
+    getType def | length w == 2 = App (Cn (identS (w !! 0))) (Cn (identS (w !! 1)))
+    getType def | otherwise = Cn (identS def)
+
 artFields fields def | otherwise               = [(LIdent (rawIdentS "s"), ((Nothing, Empty), Sort (identS "Str")))]
 
-createPlaceholder name value fields = (getFun name [] (R fs), tp)
+createPlaceholder name fields = (getFun name [] (R fs), tp)
     where (fs, tp) = unzip $ map (\(l, (val, ty)) -> ((l, val), (l, [], ty))) fields
 
-createNum name value = createPlaceholder name value fields
+createNum name value = createPlaceholder name fields
     where fields = [(LIdent (rawIdentS "s"), ((Nothing, Empty), Sort (identS "Str"))), (LIdent (rawIdentS "n"), ((Nothing, Cn (identS value)), Sort (identS "Number")))]
 
-createArt name value fields = createPlaceholder name value (artFields fields value)
+createArt name value fields sp | value `elem` sp = createPlaceholder name (artFields fields value)
+createArt name value fields sp | otherwise = createPlaceholder name (artFields fields vs)
+  where vs = head (filter (\x -> isPrefixOf value x) sp)
 
-indefArt fields = createArt "IndefArt" "Indef" fields
-defArt fields = createArt "DefArt" "Def" fields
+indefArt fields sp = createArt "IndefArt" "Indef" fields sp
+defArt fields sp = createArt "DefArt" "Def" fields sp
 -- concat in s; copy def
 
 defQuant fields num art = (getFun "DetQuant" ["det", "num"] (R (map (\x -> concatFields x ("det", fs2) ("num", fs1)) (nub $ fs1 ++ fs2))), typ)
@@ -376,7 +385,7 @@ matchFields name wo mod field (Just defs) = getDefs name wo mod field (unzip def
   where 
         
         getDefs name wo mod field (order, defs')            | length (nub order) == 1 = ((LIdent (rawIdentS field), (Nothing, head (map fst (sortOn snd defs')))), [])
-        getDefs name wo mod field (order, (def1:def2:rest)) | otherwise               =  ((LIdent (rawIdentS field), (Nothing, S (T TRaw [(PP (MN (identS mod), identS "pre") [] , fst def1), (PP (MN (identS mod), identS "post") [] , fst def2)]) (P (Vr (identS wo)) (LIdent (rawIdentS "wo"))))), [(wo, ["wo"])])
+        getDefs name wo mod field (order, (def1:def2:rest)) | otherwise               =  ((LIdent (rawIdentS field), (Nothing, S (T TRaw [(PP (MN (identS "Prelude"), identS "True") [] , fst def1), (PP (MN (identS "Prelude"), identS "False") [] , fst def2)]) (P (Vr (identS wo)) (LIdent (rawIdentS "isPre"))))), [(wo, ["isPre"])])
 
 getNewType fields [] base = []       
 getNewType fields ((def, tree):funs) base | el `notElem` fields = ((el, [(map fst def, tree)]):(getNewType fields funs base))
