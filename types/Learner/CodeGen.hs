@@ -98,8 +98,6 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
       Ok m    -> return m
       Bad msg -> fail msg
     
-    print m
-
     fieldsM <- forM (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
      -- examples
       when (cfgVerbose cfg) $ do
@@ -465,9 +463,10 @@ findParam gr cfg morpho (QC q) = do
                                                                  return ((mn,id),ctxt)
                                 _                          -> raise $ render (ppQIdent Qualified q <+> "has no parameter values defined")
   morpho <- case [ud_tag t | t <- all_tags, ident t==snd q] of
-              (v:_) -> pop v morpho
+              (v:_) | v /= ("","")
+                    -> pop v morpho
               _     -> return morpho
-  
+
   foldM (\t (_,_,ty) -> fmap (App t) (findParam gr cfg morpho ty)) (QC q) ctxt
 
 findInh gr cfg morpho t ty@(QC q) = do

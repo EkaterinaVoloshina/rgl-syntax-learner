@@ -119,7 +119,7 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "participle"      ("VerbForm","Part")        "part"          "Part"            "Participle"
   ,tag "indefinite"      ("Definite","Ind")         "indef"         "Indef"           "Species"
   ,tag "definite"        ("Definite","Def")         "def"           "Def"             "Species"
-  ,tag "unspecified"     ("Distance","Unspecified") "unspecified"   "Unspecified"     "Distance"
+  ,tag "unspecified"     ("","")                    "unspecified"   "Unspecified"     "Distance"
   ,tag "proximal"        ("Distance","Proximal")    "proximal"      "Proximal"        "Distance"
   ,tag "distal"          ("Distance","Distal")      "distal"        "Distal"          "Distance"
   ,tag "present"         ("Tense","Pres")           "present"       "Present"         "Tense"
