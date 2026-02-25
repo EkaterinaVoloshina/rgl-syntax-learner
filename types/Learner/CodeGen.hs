@@ -99,10 +99,11 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
     
 
     fieldsM <- forM (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
-    -- print (ppTerm Unqualified 0 t0)
-
      -- examples
-      when (cfgVerbose cfg) $
+      when (cfgVerbose cfg) $ do
+        putStrLn "Pattern:"
+        print (ppTerm Unqualified 0 t0)
+
         forM_ dataset $ \(vs,inh) ->
           print (hsep (map (\(_,t,_) -> ppTerm Unqualified 10 t) vs) <+> pp '|' <+>
                                         hsep (punctuate ";" (map (\(t1,t2,ty) -> pp t1 <> pp '=' <> pp t2 <+> pp ':' <+> pp ty) inh)))
@@ -111,8 +112,9 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
       if dim_inh > 0 && accuracy > stopping
         then do when (cfgVerbose cfg) $ do
                   putStrLn ""
-                  putStrLn ("=== "++show accuracy)
+                  putStrLn ("Found term with accuracy "++show accuracy++":")
                   print (pp t)
+                  putStrLn ""
                 return ((t, freq), getIdent (unpackT t))                
                 
         else let types = map (\(_,_,ty)->ty) (fst (head dataset))
@@ -128,8 +130,9 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
                     | null rest || accuracy > stopping -> do
                           when (cfgVerbose cfg) $ do
                             putStrLn ""
-                            putStrLn ("=== "++show accuracy)
+                            putStrLn ("Found term with accuracy "++show accuracy++":")
                             print (pp t)
+                            putStrLn ""
                           return ((t, freq), getIdent (unpackT t))
                           
                     | otherwise -> do
@@ -230,8 +233,9 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
        in if null rest || accuracy > stopping
             then do when (cfgVerbose cfg) $ do
                       putStrLn ""
-                      putStrLn ("=== "++show accuracy)
+                      putStrLn ("Found term with accuracy "++show accuracy++":")
                       print (pp t)
+                      putStrLn ""
                     return ((t, freq), getIdent (unpackT t))
             else cross_breed dim_dataset dataset t0 subst0'' rest
 
