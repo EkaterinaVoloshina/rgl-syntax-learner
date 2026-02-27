@@ -18,6 +18,7 @@ data RGL
         , rglDict      :: ModuleInfo
         , rglDictAbs   :: ModuleInfo
         , rglParadigms :: ModuleInfo
+        , rglNumerals  :: ModuleInfo
         }
 
 readGrammar :: Config -> IO RGL
@@ -25,9 +26,11 @@ readGrammar cfg = withStatus ("Reading grammar from "++fdir) $ do
   let resX       = moduleNameS (cfgLangModule cfg "Res")
       catX       = moduleNameS (cfgLangModule cfg "Cat")
       cat        = moduleNameS "Cat"
+      numerals   = moduleNameS "Numerals"
       dictX      = moduleNameS (cfgLangModule cfg "Dict")
       dictXAbs   = moduleNameS (cfgLangModule cfg "Dict"++"Abs")
       paradigmsX = moduleNameS (cfgLangModule cfg "Paradigms")
+      numeralsX  = moduleNameS (cfgLangModule cfg "Numerals")
       predef     = moduleNameS "Predef"
 
   resM       <- loadModule resX MTResource [] []
@@ -35,8 +38,10 @@ readGrammar cfg = withStatus ("Reading grammar from "++fdir) $ do
   dictM      <- loadModule dictX (MTConcrete dictXAbs) [(catX,MIAll)] [OSimple predef,OSimple resX]
   dictAbsM   <- loadModule dictXAbs MTAbstract [(cat,MIAll)] []
   paradigmsM <- loadModule paradigmsX MTResource [] []
+  numeralsM  <- loadModule numeralsX (MTConcrete numerals) [(catX,MIAll)] []
   return (RGL { rglRes = resM{jments=Map.filter notResValue (jments resM)}
               , rglCat = catM
+              , rglNumerals = numeralsM
               , rglDict = dictM
               , rglDictAbs = dictAbsM
               , rglParadigms = paradigmsM
@@ -74,6 +79,7 @@ writeGrammar :: Config -> RGL -> IO ()
 writeGrammar cfg rgl = withStatus ("Writing grammar to "++fdir) $ do
   writeModule (cfgLangModule cfg "Res") (rglRes rgl)
   writeModule (cfgLangModule cfg "Cat") (rglCat rgl)
+  writeModule (cfgLangModule cfg "Numerals") (rglNumerals rgl)
   writeModule (cfgLangModule cfg "Dict") (rglDict rgl)
   writeModule (cfgLangModule cfg "Dict"++"Abs") (rglDictAbs rgl)
   writeModule (cfgLangModule cfg "Paradigms") (rglParadigms rgl)
