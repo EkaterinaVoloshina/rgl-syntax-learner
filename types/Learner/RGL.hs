@@ -38,7 +38,7 @@ readGrammar cfg = withStatus ("Reading grammar from "++fdir) $ do
   dictM      <- loadModule dictX (MTConcrete dictXAbs) [(catX,MIAll)] [OSimple predef,OSimple resX]
   dictAbsM   <- loadModule dictXAbs MTAbstract [(cat,MIAll)] []
   paradigmsM <- loadModule paradigmsX MTResource [] []
-  numeralM   <- loadModule numeralX (MTConcrete numeral) [(catX,MIOnly [identS "Numeral",identS "Digits",identS "Decimal"])] []
+  numeralM   <- loadModule numeralX (MTConcrete numeral) [(catX,MIOnly [identS "Numeral",identS "Digits",identS "Decimal"])] [OSimple resX]
   return (RGL { rglRes = resM{jments=Map.filter notResValue (jments resM)}
               , rglCat = catM
               , rglNumeral = numeralM

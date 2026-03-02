@@ -15,12 +15,16 @@ options =
 learn cfg = do
   rbnf <- readCLDR cfg
   rgl <- readGrammar cfg
+  let lincatDig   = RecType [(ident2label s,[],Sort cStr),(ident2label n,[],Cn number)]
   let lincatDigit = RecType [(ident2label s,[],Sort cStr),(ident2label teen,[],typeStr),(ident2label ten,[],typeStr)]
+  rgl <- addLincat rgl "Dig" lincatDig
   rgl <- addLincat rgl "Digit" lincatDigit
   rgl <- addLincat rgl "Sub10"  (RecType [(ident2label s,[],Sort cStr)])
   rgl <- addLincat rgl "Sub100" (RecType [(ident2label s,[],Sort cStr)])
   rgl <- addOper rgl "mkDigit" (Prod Explicit identW typeStr (Prod Explicit identW typeStr (Prod Explicit identW typeStr lincatDigit)))
                                (Abs Explicit s (Abs Explicit teen (Abs Explicit ten (R [assign (ident2label s) (Vr s),assign (ident2label teen) (Vr teen),assign (ident2label ten) (Vr ten)]))))
+  rgl <- addOper rgl "mkDig" (Prod Explicit identW typeStr (Prod Explicit identW (Cn number) lincatDig))
+                             (Abs Explicit s (Abs Explicit n (R [assign (ident2label s) (Vr s),assign (ident2label n) (Vr n)])))
   rgl <- transferRule1 rgl rbnf "pot01"  1
   rgl <- transferRule1 rgl rbnf "pot110" 10
   rgl <- transferRule1 rgl rbnf "pot111" 11
@@ -38,12 +42,25 @@ learn cfg = do
   rgl <- addRule rgl "pot2as3" (Abs Explicit n (Vr n))
   rgl <- addRule rgl "pot3as4" (Abs Explicit n (Vr n))
   rgl <- addRule rgl "pot4as5" (Abs Explicit n (Vr n))
+  rgl <- addRule rgl "D_0" (App (App (Vr (identS "mkDig")) (K "0")) (Cn pl))
+  rgl <- addRule rgl "D_1" (App (App (Vr (identS "mkDig")) (K "1")) (Cn sg))
+  rgl <- addRule rgl "D_2" (App (App (Vr (identS "mkDig")) (K "2")) (Cn pl))
+  rgl <- addRule rgl "D_3" (App (App (Vr (identS "mkDig")) (K "3")) (Cn pl))
+  rgl <- addRule rgl "D_4" (App (App (Vr (identS "mkDig")) (K "4")) (Cn pl))
+  rgl <- addRule rgl "D_5" (App (App (Vr (identS "mkDig")) (K "5")) (Cn pl))
+  rgl <- addRule rgl "D_6" (App (App (Vr (identS "mkDig")) (K "6")) (Cn pl))
+  rgl <- addRule rgl "D_7" (App (App (Vr (identS "mkDig")) (K "7")) (Cn pl))
+  rgl <- addRule rgl "D_8" (App (App (Vr (identS "mkDig")) (K "8")) (Cn pl))
+  rgl <- addRule rgl "D_9" (App (App (Vr (identS "mkDig")) (K "9")) (Cn pl))
   writeGrammar cfg rgl
   where
     s = identS "s"
     teen = identS "teen"
     ten = identS "ten"
     n = identS "n"
+    number = identS "Number"
+    pl = identS "Pl"
+    sg = identS "Sg"
 
     addLincat rgl cat typ = do
       let m = rglNumeral rgl
