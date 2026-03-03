@@ -42,7 +42,9 @@ readCLDR cfg = do
                    value <- get_attr "value" rule
                    guard (value /= "-x" && value /= "x.x")
                    text  <- (children >=> get_text) rule
-                   return (read value :: Int,parseRule cat text)
+                   case reads value of
+                     [(v,"")] -> return (v :: Int,parseRule cat text)
+                     _        -> mzero
         return (cat,rules)
   return (decimal,group,minus,rbnf)
 
