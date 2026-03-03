@@ -32,13 +32,15 @@ readGrammar cfg = withStatus ("Reading grammar from "++fdir) $ do
       paradigmsX = moduleNameS (cfgLangModule cfg "Paradigms")
       numeralX   = moduleNameS (cfgLangModule cfg "Numeral")
       predef     = moduleNameS "Predef"
+      prelude    = moduleNameS "Prelude"
+      paramX     = moduleNameS "ParamX"
 
   resM       <- loadModule resX MTResource [] []
   catM       <- loadModule catX (MTConcrete cat) [] [OSimple resX]
   dictM      <- loadModule dictX (MTConcrete dictXAbs) [(catX,MIAll)] [OSimple predef,OSimple resX]
   dictAbsM   <- loadModule dictXAbs MTAbstract [(cat,MIAll)] []
   paradigmsM <- loadModule paradigmsX MTResource [] []
-  numeralM   <- loadModule numeralX (MTConcrete numeral) [(catX,MIOnly [identS "Numeral",identS "Digits",identS "Decimal"])] [OSimple resX]
+  numeralM   <- loadModule numeralX (MTConcrete numeral) [(catX,MIOnly [identS "Numeral",identS "Digits",identS "Decimal"])] [OSimple prelude,OSimple paramX,OSimple resX]
   return (RGL { rglRes = resM{jments=Map.filter notResValue (jments resM)}
               , rglCat = catM
               , rglNumeral = numeralM

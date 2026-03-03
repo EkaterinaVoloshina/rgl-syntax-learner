@@ -13,14 +13,28 @@ options =
   ]
 
 learn cfg = do
-  rbnf <- readCLDR cfg
+  (decimal,group,minus,rbnf) <- readCLDR cfg
+
   rgl <- readGrammar cfg
+
+  rgl <- addCatLincat rgl "Digits"  (RecType [(ident2label s,[],Sort cStr),(ident2label n,[],Cn number),(ident2label tl,[],Cn dtail)])
+  rgl <- addCatLincat rgl "Decimal" (RecType [(ident2label s,[],Sort cStr),(ident2label n,[],Cn number),(ident2label hasDot,[],Cn cBool)])
+
   let lincatDig   = RecType [(ident2label s,[],Sort cStr),(ident2label n,[],Cn number)]
-  let lincatDigit = RecType [(ident2label s,[],Sort cStr),(ident2label teen,[],typeStr),(ident2label ten,[],typeStr),(ident2label hundred,[],Sort cStr)]
+  let lincatDigit = RecType [(ident2label s,[],Sort cStr)
+                            ,(ident2label teen,[],typeStr)
+                            ,(ident2label ten,[],typeStr)
+                            ,(ident2label hundred,[],Sort cStr)
+                            ]
   rgl <- addLincat rgl "Dig" lincatDig
   rgl <- addLincat rgl "Digit" lincatDigit
-  rgl <- addLincat rgl "Sub10"  (RecType [(ident2label s,[],Sort cStr),(ident2label hundred,[],Sort cStr)])
-  rgl <- addLincat rgl "Sub100" (RecType [(ident2label s,[],Sort cStr)])
+  rgl <- addLincat rgl "Sub10"  (RecType [(ident2label s,[],Sort cStr)
+                                         ,(ident2label hundred,[],Sort cStr)
+                                         ,(ident2label n,[],Cn number)
+                                         ])
+  rgl <- addLincat rgl "Sub100" (RecType [(ident2label s,[],Sort cStr)
+                                         ,(ident2label n,[],Cn number)
+                                         ])
   rgl <- addOper rgl "mkDigit" (Prod Explicit identW typeStr (Prod Explicit identW typeStr (Prod Explicit identW typeStr (Prod Explicit identW typeStr lincatDigit))))
                                (Abs Explicit s (Abs Explicit teen (Abs Explicit ten (Abs Explicit hundred
                                   (R [assign (ident2label s) (Vr s)
@@ -29,7 +43,7 @@ learn cfg = do
                                      ,assign (ident2label hundred) (Vr hundred)])))))
   rgl <- addOper rgl "mkDig" (Prod Explicit identW typeStr (Prod Explicit identW (Cn number) lincatDig))
                              (Abs Explicit s (Abs Explicit n (R [assign (ident2label s) (Vr s),assign (ident2label n) (Vr n)])))
-  rgl <- transferRule1 rgl rbnf "pot01"  1
+  rgl <- transferRule1 rgl rbnf "pot01" 1
   rgl <- transferRule10 rgl rbnf "pot110" 10
   rgl <- transferRule10 rgl rbnf "pot111" 11
   rgl <- transferRule rgl rbnf "n2" 2
@@ -41,8 +55,10 @@ learn cfg = do
   rgl <- transferRule rgl rbnf "n8" 8
   rgl <- transferRule rgl rbnf "n9" 9
   rgl <- addRule rgl "pot0" (Abs Explicit n (R [assign (ident2label s) (P (Vr n) (ident2label s))
-                                               ,assign (ident2label hundred) (P (Vr n) (ident2label hundred))]))
-  rgl <- addRule rgl "pot1" (Abs Explicit n (R [assign (ident2label s) (P (Vr n) (ident2label ten))]))
+                                               ,assign (ident2label hundred) (P (Vr n) (ident2label hundred))
+                                               ,assign (ident2label n) (Cn pl)]))
+  rgl <- addRule rgl "pot1" (Abs Explicit n (R [assign (ident2label s) (P (Vr n) (ident2label ten))
+                                               ,assign (ident2label n) (Cn pl)]))
   rgl <- addRule rgl "pot2" (Abs Explicit n (R [assign (ident2label s) (P (Vr n) (ident2label hundred))]))
   rgl <- addRule rgl "pot0as1" (Abs Explicit n (Vr n))
   rgl <- addRule rgl "pot1as2" (Abs Explicit n (Vr n))
@@ -59,6 +75,29 @@ learn cfg = do
   rgl <- addRule rgl "D_7" (App (App (Vr (identS "mkDig")) (K "7")) (Cn pl))
   rgl <- addRule rgl "D_8" (App (App (Vr (identS "mkDig")) (K "8")) (Cn pl))
   rgl <- addRule rgl "D_9" (App (App (Vr (identS "mkDig")) (K "9")) (Cn pl))
+  rgl <- addRule rgl "IDig" (Abs Explicit d (ExtR (Vr d) (R [assign (ident2label tl) (Cn t1)])))
+  rgl <- addRule rgl "IIDig" (Abs Explicit d (Abs Explicit ds (R [assign (ident2label s) (C (P (Vr d) (ident2label s))
+                                                                                            (C (S (T TRaw [(PC t3     [],group_term group)
+                                                                                                          ,(PC identW [],Cn cBIND)
+                                                                                                          ])
+                                                                                                  (P (Vr ds) (ident2label tl)))
+                                                                                               (P (Vr ds) (ident2label s))))
+                                                                 ,assign (ident2label n) (Cn pl)
+                                                                 ,assign (ident2label tl) (App (Cn inc) (P (Vr ds) (ident2label tl)))])))
+  rgl <- addRule rgl "PosDecimal" (Abs Explicit ds (ExtR (Vr ds) (R [assign (ident2label hasDot) (Cn cFalse)])))
+  rgl <- addRule rgl "NegDecimal" (Abs Explicit ds (R [assign (ident2label s) (C (K minus)
+                                                                                 (C (Cn cBIND)
+                                                                                    (P (Vr ds) (ident2label s))))
+                                                      ,assign (ident2label n) (Cn pl)
+                                                      ,assign (ident2label hasDot) (Cn cFalse)]))
+  rgl <- addRule rgl "IFrac" (Abs Explicit ds (Abs Explicit d (R [assign (ident2label s) (C (S (T TRaw [(PC cTrue  [],P (Vr ds) (ident2label s))
+                                                                                                       ,(PC cFalse [],C (P (Vr ds) (ident2label s)) (C (Cn cBIND) (K decimal)))
+                                                                                                       ])
+                                                                                               (P (Vr ds) (ident2label hasDot)))
+                                                                                            (C (Cn cBIND)
+                                                                                               (P (Vr d) (ident2label s))))
+                                                                 ,assign (ident2label n) (Cn pl)
+                                                                 ,assign (ident2label hasDot) (Cn cTrue)])))
   writeGrammar cfg rgl
   where
     s = identS "s"
@@ -66,9 +105,26 @@ learn cfg = do
     ten = identS "ten"
     hundred = identS "hundred"
     n = identS "n"
+    d = identS "d"
+    ds = identS "ds"
     number = identS "Number"
     pl = identS "Pl"
     sg = identS "Sg"
+    hasDot = identS "hasDot"
+    tl = identS "tail"
+    dtail = identS "DTail"
+    t1 = identS "T1"
+    t2 = identS "T2"
+    t3 = identS "T3"
+    inc = identS "inc"
+
+    group_term " " = Cn cSOFT_SPACE
+    group_term cs  = C (Cn cBIND) (C (K cs) (Cn cBIND))
+
+    addCatLincat rgl cat typ = do
+      let m = rglCat rgl
+          jments' = Map.insert (identS cat) (CncCat (Just (noLoc typ)) Nothing Nothing Nothing Nothing) (jments m)
+      return rgl{rglCat=m{jments=jments'}}
 
     addLincat rgl cat typ = do
       let m = rglNumeral rgl
@@ -85,13 +141,17 @@ learn cfg = do
         Nothing    -> do putStrLn ("No rbnf found for "++cfgLangName cfg++" number 1")
                          return rgl
         Just (s_val,hundred_val)
-                   -> do addRule rgl rule (R [assign (ident2label s) (K s_val), assign (ident2label hundred) (K hundred_val)])
+                   -> do addRule rgl rule (R [assign (ident2label s) (K s_val)
+                                             ,assign (ident2label hundred) (K hundred_val)
+                                             ,assign (ident2label n) (Cn sg)
+                                             ])
 
     transferRule10 rgl rbnf rule i =
       case evalRule "spellout-numbering" i rbnf of
-        Nothing    -> do putStrLn ("No rbnf found for "++cfgLangName cfg++" number 1")
+        Nothing    -> do putStrLn ("No rbnf found for "++cfgLangName cfg++" number "++show i)
                          return rgl
-        Just s_val -> do addRule rgl rule (R [assign (ident2label s) (K s_val)])
+        Just s_val -> do addRule rgl rule (R [assign (ident2label s) (K s_val)
+                                             ,assign (ident2label n) (Cn pl)])
 
     transferRule rgl rbnf rule i =
       case liftM4 (,,,) (evalRule "spellout-numbering" i rbnf)

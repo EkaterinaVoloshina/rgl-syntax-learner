@@ -13,12 +13,27 @@ readCLDR cfg = do
   exist <- doesDirectoryExist fpath
   when (not exist) $ do
     createDirectoryIfMissing True fpath
-    res <- system ("git clone https://github.com/unicode-org/cldr "++fpath)
+    res <- system ("curl https://unicode.org/Public/cldr/48/core.zip -o data/core.zip")
     case res of
-      ExitSuccess -> return ()
+      ExitSuccess -> do res <- system ("unzip data/core.zip -d "++fpath)
+                        case res of
+                          ExitSuccess -> return ()
+                          _           -> exitWith res
       _           -> exitWith res
+  s <- readFile ("data/cldr/common/main/"++cfgIso2 cfg++".xml")
+  let formatting = do
+        doc <- parseXML s
+        symbols <- path ["ldml","numbers","symbols"] doc
+        decimal <- default_val "." ((children >=> select "decimal")   symbols >>= children >>= get_text)
+        group   <- default_val " " ((children >=> select "group")     symbols >>= children >>= get_text)
+        minus   <- default_val "-" ((children >=> select "minusSign") symbols >>= children >>= get_text)
+        return (decimal,group,minus)
+      (decimal,group,minus) =
+         case formatting of
+           x:_ -> x
+           _   -> (","," ","-")
   s <- readFile ("data/cldr/common/rbnf/"++cfgIso2 cfg++".xml")
-  let rules = do
+  let rbnf = do
         doc <- parseXML s
         ruleset <- (path ["ldml","rbnf","rulesetGrouping"] >=> attr "type" "SpelloutRules" >=> children >=> select "ruleset") doc
         cat <- get_attr "type" ruleset
@@ -29,7 +44,7 @@ readCLDR cfg = do
                    text  <- (children >=> get_text) rule
                    return (read value :: Int,parseRule cat text)
         return (cat,rules)
-  return rules
+  return (decimal,group,minus,rbnf)
 
 select :: String -> XML -> [XML]
 select t xml@(Tag t' _ _) | t == t' = [xml]
@@ -56,6 +71,9 @@ get_text (Data t) = [t]
 get_text _        = []
 
 collect x f = [f x]
+
+default_val x [] = [x]
+default_val _ xs = xs
 
 data Symbol
   = Up   String
