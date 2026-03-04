@@ -8,10 +8,12 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                getOneField, defArt, indefArt, defQuant, createArt, createNum,
                QueryPattern(..), Val(..)) where
 
+import Debug.Trace(trace)
 import Prelude hiding ((<>))
 import GF.Infra.Ident hiding (isPrefixOf)
 import GF.Infra.Option
 import GF.Data.Operations
+import GF.Data.Operations as Op
 import GF.Text.Pretty hiding (empty)
 import GF.Grammar.Lookup
 import GF.Grammar.Printer
@@ -80,10 +82,12 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
                             patts                       -- matching patterns
                             smarts
 
-   -- mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
+    --mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
 
     
-    let res = fmap (Map.fromListWith (++)) $ runGenM $ do
+    let res :: Err (Map.Map (Term, Int, Int)
+                  [([(Int, Term, Term)], [(Term, Term, Term)])])
+        res = fmap (Map.fromListWith (++)) $ runGenM $ do
                 patt <- anyOf (patterns cctxt)
 
                 inh <- runGenM $ do
@@ -91,17 +95,23 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
                           findInh gr cctxt morpho t ty
 
                 (str,vs) <- buildStr [] (sortOn (\((id,_,_,_,_),_,_)->id) patt)
-                                        (\vs ((_,_,_,morpho,_),t,ty) -> findStr gr cctxt morpho vs t ty)
+                                       (\vs ((_,_,_,morpho,_),t,ty) -> findStr gr cctxt morpho vs t ty)
+                --print vs
+                -- if length patt > 1 then trace (show patt) $ return ()
+                
                 return ((str,length vs,length inh),[(reverse vs,inh)])
+    
+
     
     m <- case res of
       Ok m    -> return m
       Bad msg -> fail msg
-    
+
+
     fieldsM <- forM (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
      -- examples
       when (cfgVerbose cfg) $ do
-        putStrLn "Pattern:"
+        putStrLn "Pattern: "
         print (ppTerm Unqualified 0 t0)
 
         forM_ dataset $ \(vs,inh) ->
@@ -149,6 +159,7 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
       let mappedTrees = map (\t -> (getOneIdent (unpackT (fst t)), t)) trees
 
       return (mappedTrees, [(showIdent cn, keepN), (showIdent ap, keepA)], lincat)
+    
        
 
   where
@@ -445,8 +456,11 @@ findStr gr cfg morpho vs t (RecType fs) = do
   (l,_,ty) <- anyOf fs
   morpho <- case [ud_tag t | t <- all_tags, label t==l] of
               (v:_) -> pop v morpho
+              --(v:_) -> return (filter (\m -> m `notElem` v) morpho)
               _     -> return morpho
   findStr gr cfg morpho vs (P t l) ty
+
+
 findStr gr cfg morpho vs t (Table arg res) = do
   v <- findParam gr cfg morpho arg
   let i = length vs+1
@@ -463,7 +477,7 @@ findParam gr cfg morpho (QC q) = do
                                                                  return ((mn,id),ctxt)
                                 _                          -> raise $ render (ppQIdent Qualified q <+> "has no parameter values defined")
   morpho <- case [ud_tag t | t <- all_tags, ident t==snd q] of
-              (v:_) | v /= ("","")
+              (v:_) | v /= []
                     -> pop v morpho
               _     -> return morpho
 
@@ -476,6 +490,7 @@ findInh gr cfg morpho t (RecType fs) = do
   (l,_,ty) <- anyOf fs
   morpho <- case [ud_tag t | t <- all_tags, label t==l] of
               (v:_) -> pop v morpho
+              --(v:_) -> return (filter (\m -> m `notElem` v) morpho)
               _     -> return morpho
   findInh gr cfg morpho (P t l) ty
 findInh gr cfg morpho t ty = empty
@@ -529,6 +544,7 @@ instance ErrorMonad GenM where
                                                      GenM h -> h s k r
                                         Ok r    -> Ok r)
 
+
 runGenM (GenM g) =
   case g Set.empty (\x xs -> Ok (x:xs)) [] of
     Ok xs   -> return xs
@@ -542,11 +558,18 @@ anyOf xs = GenM (choose xs)
                             Ok r    -> choose xs s k r
                             Bad msg -> Bad msg
 
-pop x  []     = empty
+{-pop x  []     = empty
 pop x0 (x:xs)
   | x0 == x   = return xs
   | otherwise = do xs <- pop x0 xs
+                   return (x:xs)-}
+-- return (filter (\m -> m `notElem` v) morpho)
+pop x  []     = empty
+pop x0 (x:xs)
+  | x `elem` x0   = return xs
+  | otherwise = do xs <- pop x0 xs
                    return (x:xs)
+
 
 with q (GenM g) =
   GenM (\s k r -> if Set.member q s

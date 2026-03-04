@@ -10,7 +10,7 @@ import GF.Text.Pretty hiding (empty)
 import GF.Grammar.Grammar hiding (Rule(..))
 import Data.Char (toUpper,toLower)
 import Data.Maybe
-import GF.Infra.Ident
+import GF.Infra.Ident 
 import GF.Grammar.Lookup
 import Control.Monad
 import Data.List
@@ -44,10 +44,10 @@ learn cfg = do
 
     -- block of functions that handle CN type --
     (adjCN, lincatCN, oneArgs) <- learnAdjCN cfg cnc gr noSmarts trees
-    --(adAP, twoArgs) <- learnAdAP lang cnc gr mapping noSmarts trees
+    (adAP, twoArgs) <- learnAdAP cfg cnc gr noSmarts trees
     --(advAP, threeArgs) <- learnAdvAP lang cnc gr mapping noSmarts trees
 
-    let allArgs = Map.fromListWith (++) (concat [oneArgs])
+    let allArgs = Map.fromListWith (++) (concat [oneArgs, twoArgs])
     let positA = learnPositA lang allArgs
     let useN = learnUseN lang allArgs 
 
@@ -56,8 +56,8 @@ learn cfg = do
     (advCN, fourArgs) <- learnAdv cfg cnc gr noSmarts trees (snd (head lincats))
     
     -- block of functions that handle VP type -- 
-    (v2, verbArgs) <- learnV2 cfg cnc gr noSmarts trees
-    (predVP, verb2Args) <- learnPredVP cfg cnc gr noSmarts trees
+    --(v2, verbArgs) <- learnV2 cfg cnc gr noSmarts trees
+    (predVP, verb2Args) <- learnPredVP cfg cnc gr noSmarts trees (snd (head lincats))
 
 
     -- block of functions to create modules -- 
@@ -66,7 +66,7 @@ learn cfg = do
     let jments cat = Map.union (Map.fromList (map (\(x, y) -> (identS x, y)) lincats)) (Map.insert (identS "CN") lincatCN (jments cat))
 
     -- lincats to Res and Cat
-    let jments = Map.fromListWith (++) (catMaybes ([positA, useN, adjCN, detCN, predVP, v2] ++ advCN))
+    let jments = Map.fromListWith (++) (catMaybes ([positA, useN, adAP, adjCN, detCN, predVP] ++ advCN))
     forM_ (Map.toList jments) $ \(m, funs) -> do 
         let mod = getModule lang m funs
         writeFile (m ++ lang ++ ".gf") (show mod)
@@ -113,36 +113,80 @@ learnV2 cfg cnc gr noSmarts trees = do
     -}
     return (fields, addArgs ++ args)
     where
-        values y = lookupValues y gr (cfgIso3 cfg)
+        values y = lookupValues y gr (cfgLangName cfg)
 
-learnPredVP cfg cnc gr noSmarts trees = do 
+learnPredVP cfg cnc gr noSmarts trees np = do 
     let fields = ["Tense", "Polarity", "Aspect"]
     let m = Map.fromList (map (\y-> (y, Nothing)) (concat (map (\y -> (map toLower (take 1 y)):(values y)) fields)))
     let name = "PredVP"
     let pattern = ( 
                     QueryPattern {pos=Just ["VERB", "AUX"], rel=Nothing, morpho=Nothing, idx="vp"},
                     QueryPattern {pos=Just ["NOUN", "PRON"], rel = Just "subj", morpho=Nothing, idx="np"})
+    n_ty <- lookupResDef gr (cnc,identS "N")
     let (_, patts) = unzip $ query trees pattern
     (fun, args, lincat) <- learnPattern cfg cnc gr noSmarts patts name pattern 0
-    -- print fun
-    let fun' = Map.fromListWith (++) (map (\(f, t) -> (snd (head (filter (\(x, y) -> x == "vp") f)), [(map fst f, t)])) fun)
+    let feats = compareTs np n_ty []
+    let m = concat ((map (\x -> map toLower (take 1 x)) feats):map values feats)
+    print m
+    let fun' = map (\f -> changeF "np" np n_ty m f gr cfg) fun
+    print fun'
+    
+    --print (Map.fromListWith (++) (map (\(f, t) -> (snd (head (filter (\(x, y) -> x == name) f)), [(map fst f, t)])) fun'))
+    --print (map (\(f, t) -> (snd (head (filter (\(x, y) -> x == name) f)), [(map fst f, t)])) fun')
+     
+    --let fun'' = Map.fromListWith (++) (map (\(f, t) -> (snd (head (filter (\(x, y) -> x == "vp") f)), [(map fst f, t)])) fun')
+    --print fun''
     
     let argMap = Map.fromList args
-    let (fields, addArgs) = combineTrees cfg name "vp" "np" modmap fun argMap ["np", "vp"]
+    let (fs, addArgs) = combineTrees cfg name "vp" "np" modmap fun' argMap ["np", "vp"]
 
-
-    let (f', _) = unzip (map (\x -> matchFields "vp" "np" ("Verb" ++ toTitle (cfgIso3 cfg)) x (Map.lookup x fun')) (fromJust (Map.lookup "vp" argMap)))
+    --let (f', _) = unzip $ [matchFields "vp" "np" ("Verb" ++ toTitle (cfgIso3 cfg)) "s" (Map.lookup "s" f)]
+    --let fs = fillType np lincat [] f' (gr, toTitle (cfgIso3 cfg))
+    --let (f', _) = unzip (map (\x -> matchFields "vp" "np" ("Verb" ++ toTitle (cfgIso3 cfg)) x (Map.lookup x fun')) (fromJust (Map.lookup "vp" argMap)))
     --print (R f')
     --print (pp $ R (map (\(idx, (rest, val)) -> (idx, (Nothing, replaceIdent val m))) f'))
 
-    return (fields, addArgs ++ args)
+    return (fs, addArgs ++ args)
     where
-        values y = lookupValues y gr (cfgIso3 cfg)
+        values y = lookupValues y gr (toTitle (cfgIso3 cfg))
 
-{-learnAdAP lang cnc gr mapping noSmarts trees = do 
+        compareTs (RecType []) ts new = new 
+        compareTs (RecType ((n1, _, t1):ts1)) (RecType ((n2, _, t2):ts2)) new | (n1 == n2) && (t1 == t2) = compareTs (RecType ts1) (RecType ts2) new
+        compareTs (RecType ((n1, _, t1):ts1)) (RecType ((n2,_, t2):ts2)) new | (n1 == n2) = (getChanges t1 t2) ++ new
+        compareTs (RecType (t1:ts1)) (RecType (t2:ts2)) new | otherwise = compareTs (RecType (t1:ts1)) (RecType ts2) new
+
+        getChanges s@(Sort _) (Table (QC (_, idx)) t2) = (showIdent idx:(getChanges s t2))
+        getChanges _ (Sort _) = []
+
+changeF name (RecType np) n_ty m (fs, (f,freq))  gr cfg = (fs', (f', freq))
+    where 
+        (fs', f') = findField np fs f
+        findField [] fs@[(n1, t1), (n2,t2)] f | n2 == name = ([(n1, t1), (n2,"s")], fixType f name)
+        findField [] fs@[(n1, t1), (n2,t2)] f | n1 == name = ([(n1,"s"), (n2,t2)], fixType f name)
+        findField ((LIdent id, _, t):np) fs@[(n1, t1), (n2,t2)] f | (n2 == name && t2 == (showRawIdent id)) || (n1 == name && t1 == (showRawIdent id)) = (fs, fixType f name)
+        findField ((LIdent id, _, t):np) fs@[(n1, t1), (n2,t2)] f | otherwise = findField np fs f 
+
+        fixType (C p1 p2) t = C (fixType p1 t) (fixType p2 t)
+        fixType p@(P (Vr idx) (LIdent lid)) t | ((showIdent idx) == t) && (showRawIdent lid /= "s") = P (Vr idx) (LIdent (rawIdentS "s"))
+        fixType (T TRaw [(PV f, tab)]) t | showIdent f `elem` m = fixType tab t
+        fixType (T TRaw [(PV f, tab)]) t | otherwise = (T TRaw [(PV f, (fixType tab t))])
+        fixType (S tab (Vr f)) t | showIdent f `elem` m = fixType tab t
+        fixType (S tab (Vr f)) t | otherwise = S (fixType tab t) (Vr f)
+        fixType (S tab (QC (_,f))) t | showIdent f `elem` m = fixType tab t
+        fixType (S tab q@(QC _)) t | otherwise = S (fixType tab t) q
+        fixType (S tab (App (QC (_,f1)) (QC (_,f2)))) t | (showIdent f1 ++ " " ++ showIdent f2) `elem` m = fixType tab t
+        fixType (S tab a@(App (QC _) (QC _))) t | otherwise = S (fixType tab t) a
+        fixType p t | otherwise = p 
+
+learnAdAP cfg cnc gr snoSmarts trees = do 
     let name = "AdAP"
-    (fun, args) <- learn cnc gr mapping noSmarts trees name (("ADJ", Nothing),("ADV", Just "mod")) ("ada", "adj")
-    let (fields, addArgs) = combineTrees name "adj" "ada" modmap lang fun args ["ada", "adj"]
+    let pattern = ( 
+                    QueryPattern {pos=Just ["ADJ"], rel=Nothing, morpho=Nothing, idx="adj"},
+                    QueryPattern {pos=Just ["ADV"], rel = Just "mod", morpho=Nothing, idx="ada"})
+    let (_, patts) = unzip $ query trees pattern
+    (fun, args, lincat) <- learnPattern cfg cnc gr noSmarts patts name pattern 0 
+    let argMap = Map.fromList args
+    let (fields, addArgs) = combineTrees cfg name "adj" "ada" modmap fun argMap ["ada", "adj"]
     return (fields, addArgs ++ args) 
 
 --learnAdvAP lang cnc gr mapping noSmarts trees = do 
@@ -228,7 +272,7 @@ learnDetCN cfg cnc gr noSmarts trees (RecType cn) = do
     let sp = getDefParam "Species" gr (toTitle (cfgIso3 cfg))
     
     let catMap = Map.fromList [("s", Just ("det", "sp")), ("n", Just ("det", "n"))]
-    let fields' = [show (label t) | t <- all_tags, fst (ud_tag t) `elem` fields]
+    let fields' = [show (label t) | t <- all_tags, all (\x -> fst x `elem` fields) (ud_tag t)]
     
 
     let (numSg, _) = createNum "NumSg" "Sg" 
@@ -238,6 +282,24 @@ learnDetCN cfg cnc gr noSmarts trees (RecType cn) = do
     let pattern = (QueryPattern {pos= Nothing, rel=Nothing, morpho=Nothing, idx=""}, 
                    QueryPattern {pos= Just ["DET"], rel = Nothing, morpho=Just [("PronType", Match "Art")], idx="det"})
     let (trees', patts) = unzip $ query trees pattern 
+
+    let artPatt = nub $ map (\(x@(_,lemma1,pos,m1,_), y@(_,lemma2,_,m2,_)) -> if pos == "DET" then (lemma1, m1) else (lemma2, m2)) patts
+
+  
+    -- gather information about all features 
+    
+    let allFeats = nub $ (map fst (concat (map (\(Tag _ f _ _ _ _) -> f) all_tags)))
+
+    let feats = filter (\x -> x `elem` allFeats) (nub $ concat $ map (\(x, y) -> map fst y) artPatt)
+    
+    -- recursively for each feature sepatate (FEAT, div)
+    let feats = delete "Definite" feats
+    
+    {-if "Number" in feats then do 
+        let feats = delete "Number" feats -}
+    
+   {-} let patt' = Map.fromListWith (++) (mapMaybe (\(lemma,m) -> sepList "Definite" m (Just lemma)) artPatt)
+    print (sortFeats feats patt') -}
 
     let (indef, _) = indefArt fields sp
     let (def, artType) = defArt fields sp
@@ -281,7 +343,21 @@ learnDetCN cfg cnc gr noSmarts trees (RecType cn) = do
 
 
     return $ (Just ("Noun", [detCN, numNP, dQuant, def, indef, numSg, numPl]), [("NP", lincat'), ("Quant", RecType quantType), ("Det", RecType artType), ("Num", RecType numType)], (Map.keys np ++ fields'))
-    where getLbl (lbl, _, _)= lbl
+    where 
+        getLbl (lbl, _, _)= lbl
+        
+{-sepList param patt _ | isNothing (lookup param patt) = Nothing
+sepList param patt (Just lemma) | otherwise      = Just ((param,val), [(("lemma",lemma) : (delete (param, val) patt))])
+    where
+        val = fromJust (lookup param patt)
+sepList param patt Nothing | otherwise = Just ((param,val), [delete (param, val) patt])
+    where
+        val = fromJust (lookup param patt)
+
+sortFeats [feat] mapp = Map.map (\mm -> Map.fromListWith (++) (mapMaybe (\m -> sepList feat m) mm)) mapp
+sortFeats (feat:feats) mapp = Map.map (\mm -> Map.map (sortFeats feats) (Map.fromListWith (++) (mapMaybe (\m -> sepList feat m) mm))) mapp -}
+
+        
 
 filterTable t@(Table (QC (_, idx)) t2@(Table _ _)) fields | (showIdent idx) `elem` fields = filterTable t2 fields
 filterTable t@(Table (QC (_, idx)) t2@(Sort _)) fields | (showIdent idx) `elem` fields = t2
@@ -318,7 +394,7 @@ lookupMap i m = fromJust (Map.lookup i m)
 addArgs np cn fields = map (\x -> getOneField x "cn") (filter (\x -> (x `Map.notMember` np) && (x `notElem` fields)) cn)
         
 lookupValues param gr lang = do 
-    x <- case allParamValues gr (Con (identS param)) of 
+    x <- case allParamValues gr (QC (MN  (identS ("Res" ++ lang)), identS param)) of 
         Ok m -> return m
         Bad  msg -> return []
  
