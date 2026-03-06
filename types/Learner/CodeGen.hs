@@ -8,7 +8,7 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                getOneField, defArt, indefArt, defQuant, createArt, createNum,
                QueryPattern(..), Val(..)) where
 
-import Debug.Trace(trace)
+import Debug.Trace(trace, traceShowId, traceShow)
 import Prelude hiding ((<>))
 import GF.Infra.Ident hiding (isPrefixOf)
 import GF.Infra.Option
@@ -50,7 +50,7 @@ data QueryPattern = QueryPattern {
     idx :: String
 } deriving (Show)
 
-mapPOS fun = (mapOne (snd fun), mapOne (fst fun))
+mapPOS fun = (mapOne (fst fun), mapOne (snd fun))
   where mapOne f = showIdent (posCat (fromJust (lookupUPOS (head (fromJust (pos f))))))
 
 
@@ -60,16 +60,19 @@ query trees fun = do
   res <- filter (\(t, e) -> matchEdges fun e) (edges t)
   return res
     
-learnPattern cfg cnc gr smarts pat name pattern pos = do
-    let (pos1, pos2) = mapPOS pattern
-    putStrLn ("== " ++ name ++ " ==" )
+learnPattern cfg cnc gr smarts pat name pattern pos typs = do
     
+    putStrLn ("== " ++ name ++ " ==" )
+
+    let (a_ty, n_ty) = typs
+    {-let (pos1, pos2) = mapPOS pattern
     a_ty <- lookupResDef gr (cnc,identS pos1)
-    n_ty <- lookupResDef gr (cnc,identS pos2)
+    n_ty <- lookupResDef gr (cnc,identS pos2)-}
     
     let RecType nTs = n_ty
     let RecType aTs = a_ty
     let nountypes = []
+
 
     
     let ap = identS (idx (snd pattern))
@@ -81,23 +84,27 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
         cctxt = CodeContext [(Vr ap,a_ty),(Vr cn,n_ty)] -- argument types
                             patts                       -- matching patterns
                             smarts
-
+    --putStrLn ("Patterns: ")
     --mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
 
     
-    let res :: Err (Map.Map (Term, Int, Int)
-                  [([(Int, Term, Term)], [(Term, Term, Term)])])
-        res = fmap (Map.fromListWith (++)) $ runGenM $ do
+    let res = fmap (Map.fromListWith (++)) $ runGenM $ do
                 patt <- anyOf (patterns cctxt)
-
+                
                 inh <- runGenM $ do
                           ((_,_,_,morpho,_),t,ty) <- anyOf patt
                           findInh gr cctxt morpho t ty
+                
+                
 
                 (str,vs) <- buildStr [] (sortOn (\((id,_,_,_,_),_,_)->id) patt)
                                        (\vs ((_,_,_,morpho,_),t,ty) -> findStr gr cctxt morpho vs t ty)
-                --print vs
-                -- if length patt > 1 then trace (show patt) $ return ()
+                
+                --trace (show ((ppTerm Unqualified 0str), vs)) $ return ()
+                -- print vs
+                -- if length patt > 1 then 
+               
+               -- trace (show str) $ return ()
                 
                 return ((str,length vs,length inh),[(reverse vs,inh)])
     
@@ -112,23 +119,25 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
      -- examples
       when (cfgVerbose cfg) $ do
         putStrLn "Pattern: "
+       --print dataset
         print (ppTerm Unqualified 0 t0)
 
         forM_ dataset $ \(vs,inh) ->
           print (hsep (map (\(_,t,_) -> ppTerm Unqualified 10 t) vs) <+> pp '|' <+>
                                         hsep (punctuate ";" (map (\(t1,t2,ty) -> pp t1 <> pp '=' <> pp t2 <+> pp ':' <+> pp ty) inh)))
 
-      let (freq, accuracy,_,t) = instantiate dim_dataset dataset t0 []
+      let (freq, accuracy,_,t, dt) = instantiate dim_dataset dataset t0 []
       if dim_inh > 0 && accuracy > stopping
         then do when (cfgVerbose cfg) $ do
                   putStrLn ""
                   putStrLn ("Found term with accuracy "++show accuracy++":")
+                  -- print (catMaybes dt)
                   print (pp t)
                   putStrLn ""
                 return ((t, freq), getIdent (unpackT t))                
-                
+            
         else let types = map (\(_,_,ty)->ty) (fst (head dataset))
-                 res   = (reverse . sortOn (\(_,acc,_,_)->acc))
+                 res   = (reverse . sortOn (\(_,acc,_,_,_)->acc))
                             (map (\varIndex ->
                                     let var      = freshVar [] (types !! varIndex)
                                         subst0   = [(varIndex+1,Vr var)]
@@ -136,7 +145,7 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
                                     in instantiate dim_dataset dataset' t0 subst0)
                                 [0..dim_dataset-1])
             in case res of
-                  ((freq,accuracy,subst0,t):rest)
+                  ((freq,accuracy,subst0,t,dt):rest)
                     | null rest || accuracy > stopping -> do
                           when (cfgVerbose cfg) $ do
                             putStrLn ""
@@ -147,6 +156,10 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
                           
                     | otherwise -> do
                           cross_breed dim_dataset dataset t0 subst0 rest
+                  [] -> do 
+
+                    --print res
+                    return ((Empty,0), [])
     let (trees, fsM) = unzip fieldsM 
     if (null trees) then do
       putStrLn "No examples of such construction"
@@ -156,7 +169,8 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
       let keepA = filterFields ap (getFields aTs) (concat fsM)
       let lincat = if pos == 0 then RecType (filter (\(LIdent idx, _, _) -> showRawIdent idx `elem` keepN) nTs) else RecType (filter (\(LIdent idx, _, _) -> showRawIdent idx `elem` keepA) aTs)
       
-      let mappedTrees = map (\t -> (getOneIdent (unpackT (fst t)), t)) trees
+      let trees' = filter (\(t,_) -> t /= Empty) trees
+      let mappedTrees = map (\t -> (getOneIdent (unpackT (fst t)), t)) trees'
 
       return (mappedTrees, [(showIdent cn, keepN), (showIdent ap, keepA)], lincat)
     
@@ -198,16 +212,17 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
                    in (v_ty:vs',inh')
 
     decisionTree2term (Leaf t _) = t
-    decisionTree2term (Decision (TermName t f) _ children) =
-      let (xs,ys) = partition (uncurry (==))
-                       [(f k,decisionTree2term dt) | (k,dt) <- Map.toList children]
-          cs0 = [(p,t) | (t1,t) <- ys, Ok p <- [term2patt t1]]
+    decisionTree2term (Decision (TermName t f) _ children) =   
+      let pairs = [(f k, decisionTree2term dt) | (k,dt) <- Map.toList children]
+          (xs,ys) = partition (uncurry (==)) pairs
+          cs0 = [(p,t2) | (t1,t2) <- ys, Ok p <- [term2patt t1]]
       in case (xs,ys) of
            ([],[]) -> Meta 0
            ([],ys) -> S (T TRaw cs0) t
            (xs,[]) -> t
            (xs,ys) -> let x = identS "x"
                       in S (T TRaw (cs0++[(PV x,Vr x)])) t
+      
       where
         term2patt :: Term -> Err Patt
         term2patt trm = do
@@ -223,28 +238,30 @@ learnPattern cfg cnc gr smarts pat name pattern pos = do
 
     instantiate dim_dataset dataset t0 subst0 =
       let t = foldr (\(_,Vr var) t -> T TRaw [(PV var,t)]) (substitute subst t0) subst0
-      in (length dataset', fromIntegral (length dataset')/fromIntegral (length dataset), subst0, t)
+      in (length dataset', fromIntegral (length dataset')/fromIntegral (length dataset), subst0, t, dts)
       where
         attrs            = zipWith (\i (t,_,ty) -> A (TermName t (\(_,v,_) -> v)) ((!!i) . snd)) [0..] (snd (head dataset))
-        (dataset',subst) =
+        (subst, dts)    = unzip substAll
+        (dataset',substAll) =
             mapAccumL
               (\dataset i ->
                    case lookup i subst0 of
-                     Just t  -> (dataset, (i,t))
+                     Just t  -> (dataset, ((i,t),Nothing))
                      Nothing -> let (dataset',dt) = build attrs [(d,t) | d@(vs,inh) <- dataset, (i',t,_) <- vs, i'==i]
-                                in (map fst dataset',(i,decisionTree2term dt)))
+                                in (map fst dataset',((i,decisionTree2term dt), Just dt)))
               dataset
               [1..dim_dataset]
 
-    cross_breed dim_dataset dataset t0 subst0 ((_,_,subst0',_):rest) =
+    cross_breed dim_dataset dataset t0 subst0 ((_,_,subst0',_,_):rest) =
        let subst0'' = subst0++subst0'
            dataset' = map (selectVars subst0'') dataset
-           (freq,accuracy,_,t) = instantiate dim_dataset dataset' t0 subst0''
+           (freq,accuracy,_, t, dt) = instantiate dim_dataset dataset' t0 subst0''
        in if null rest || accuracy > stopping
             then do when (cfgVerbose cfg) $ do
                       putStrLn ""
                       putStrLn ("Found term with accuracy "++show accuracy++":")
                       print (pp t)
+                      --print (dt)
                       putStrLn ""
                     return ((t, freq), getIdent (unpackT t))
             else cross_breed dim_dataset dataset t0 subst0'' rest
@@ -426,6 +443,7 @@ getTerm _ = []
 unpackT (T _ ((_, c@(C _ _)):ts)) = c
 unpackT (T _ ((_, t@(T _ _)):ts)) = unpackT t
 unpackT c@(C _ _) = c
+unpackT t = t
 
 nodes t = collect t []
   where
@@ -450,14 +468,13 @@ split sep (c:cs)
                   []     -> [[c]]
                   (x:xs) -> (c:x):xs
 
-findStr gr cfg morpho vs t (Sort s)
-  | s == cStr                  = return (t,vs)
+findStr gr cfg morpho vs t (Sort s) | s == cStr  = return (t,vs)
 findStr gr cfg morpho vs t (RecType fs) = do
   (l,_,ty) <- anyOf fs
   morpho <- case [ud_tag t | t <- all_tags, label t==l] of
               (v:_) -> pop v morpho
-              --(v:_) -> return (filter (\m -> m `notElem` v) morpho)
               _     -> return morpho
+  --trace ("buildStr: empty patt, vs=" ++ show vs ++ show morpho) $ 
   findStr gr cfg morpho vs (P t l) ty
 
 
@@ -478,7 +495,7 @@ findParam gr cfg morpho (QC q) = do
                                 _                          -> raise $ render (ppQIdent Qualified q <+> "has no parameter values defined")
   morpho <- case [ud_tag t | t <- all_tags, ident t==snd q] of
               (v:_) | v /= []
-                    -> pop v morpho
+                   -> pop v morpho
               _     -> return morpho
 
   foldM (\t (_,_,ty) -> fmap (App t) (findParam gr cfg morpho ty)) (QC q) ctxt
@@ -488,9 +505,8 @@ findInh gr cfg morpho t ty@(QC q) = do
   return (t,v,ty)
 findInh gr cfg morpho t (RecType fs) = do
   (l,_,ty) <- anyOf fs
-  morpho <- case [ud_tag t | t <- all_tags, label t==l] of
+  morpho  <- case [ud_tag t | t <- all_tags, label t==l] of
               (v:_) -> pop v morpho
-              --(v:_) -> return (filter (\m -> m `notElem` v) morpho)
               _     -> return morpho
   findInh gr cfg morpho (P t l) ty
 findInh gr cfg morpho t ty = empty
@@ -558,17 +574,13 @@ anyOf xs = GenM (choose xs)
                             Ok r    -> choose xs s k r
                             Bad msg -> Bad msg
 
-{-pop x  []     = empty
-pop x0 (x:xs)
-  | x0 == x   = return xs
-  | otherwise = do xs <- pop x0 xs
-                   return (x:xs)-}
--- return (filter (\m -> m `notElem` v) morpho)
+-- fix the pop issue
 pop x  []     = empty
 pop x0 (x:xs)
   | x `elem` x0   = return xs
   | otherwise = do xs <- pop x0 xs
                    return (x:xs)
+
 
 
 with q (GenM g) =
