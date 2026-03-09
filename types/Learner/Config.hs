@@ -116,7 +116,7 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "superlative"     [("Degree","Sup")]           "superl"        "Superl"          "Degree"
   ,tag "infinitive"      []                           "inf"           "Inf"             "NonFinite"
   ,tag "past_participle" []                          "past_part"     "PastPart"        "Participle"
-  ,tag "participle"      [("VerbForm","Part")]        "part"          "Part"            "Participle"
+  ,tag "participle"      [("VerbForm","Part")]       "participle"    "Part"            "Participle"
   ,tag "indefinite"      [("Definite","Ind")]         "indef"         "Indef"           "Species"
   ,tag "definite"        [("Definite","Def")]         "def"           "Def"             "Species"
   ,tag "unspecified"     []                         "unspecified"   "Unspecified"     "Distance"
@@ -124,7 +124,7 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "distal"          [("Distance","Distal")]      "distal"        "Distal"          "Distance"
   ,tag "present"         [("Tense","Pres")]           "present"       "Present"         "Tense"
   ,tag "past"            [("Tense","Past")]           "past"          "Past"            "Tense"
-  ,tag "aorist"          []                         "aorist"        "Aorist"          "Tense"
+  ,tag "aorist"          [("Tense","Past")]           "aorist"        "Aorist"          "Tense"
   ,tag "imperfect"       [("Tense","Imp")]            "imperfect"     "Imperfect"       "Tense"
   ,tag "perfect"         []                         "perfect"       "Perfect"         "Tense"
   ,tag "pluperfect"      []                         "pluperf"       "Pluperf"         "Tense"
@@ -193,6 +193,9 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "formal"          [("Polite","Form")]          "formal"        "Formal"          "Formality"
   ,tag "animate"         [("Animacy","Anim")]         "animate"       "Animate"         "Animacy"
   ,tag "inanimate"       [("Animacy","Inam")]         "inanimate"     "Inanimate"       "Animacy"
+  ,tag "noun-from-verb"  [("Form","NounFromVerb")]    "noun_from_verb""NounFromVerb"    "Form"
+  ,tag "adjectival"      [("Form","Adjectival")]      "adjectival"    "Adjectival"      "Form"
+  ,tag "adverbial"       [("Form","Adverbial")]       "adverbial"     "Adverbial"      "Form"
   ]
   where
     tag wikt_tag umorph_tag label ident typ = Tag wikt_tag umorph_tag (ident2label (identS label)) (identS ident) (identS typ)
