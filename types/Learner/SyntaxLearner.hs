@@ -43,7 +43,8 @@ learn cfg = do
 
 
     -- block of functions that handle CN type --
-    (adjCN, lincatCN, oneArgs) <- learnAdjCN cfg cnc gr noSmarts trees
+    (adjCN, oneArgs) <- learnAdjCN cfg cnc gr noSmarts trees
+
     (adAP, twoArgs) <- learnAdAP cfg cnc gr noSmarts trees
     --(advAP, threeArgs) <- learnAdvAP lang cnc gr mapping noSmarts trees
 
@@ -54,25 +55,27 @@ learn cfg = do
     -- block of functions that handle NP type -- 
 
     -- TODO: add lincats directly to cat 
-    (detCN, lincats, np) <- learnDetCN cfg cnc gr noSmarts trees lincatCN
-    (advCN, fourArgs) <- learnAdv cfg cnc gr noSmarts trees (snd (head lincats))
+    (detCN, np) <- learnDetCN cfg cnc gr noSmarts trees
+    (advCN, fourArgs) <- learnAdv cfg cnc gr noSmarts trees
     
     -- block of functions that handle VP type -- 
-    (v2, verbArgs) <- learnV2 cfg cnc gr noSmarts trees (snd (head lincats))
-    (predVP, verb2Args) <- learnPredVP cfg cnc gr noSmarts trees  (snd (head lincats))
+    (v2, verbArgs) <- learnV2 cfg cnc gr noSmarts trees
+    (predVP, verb2Args) <- learnPredVP cfg cnc gr noSmarts trees
 
 
     -- block of functions to create modules -- 
-
     let cat = lookupCat gr lang
-    let jments cat = Map.union (Map.fromList (map (\(x, y) -> (identS x, y)) lincats)) (Map.insert (identS "CN") lincatCN (jments cat))
-
+    --print (show (ppModule Unqualified (MN (identS $ "Cat" ++ lang), cat)))
     -- lincats to Res and Cat
-    let jments = Map.fromListWith (++) (catMaybes ([positA, useN, adAP, adjCN, predVP,v2, detCN] ++ advCN))
+    let jments = Map.fromListWith (++) (catMaybes ([positA, useN, adAP, adjCN,  detCN, predVP, v2] ++ advCN))
     forM_ (Map.toList jments) $ \(m, funs) -> do 
         let mod = getModule lang m funs
-        writeFile (m ++ lang ++ ".gf") (show mod)
-    writeFile ("Cat" ++ lang ++ ".gf") (show (ppModule Unqualified (MN (identS $ "Cat" ++ lang), cat)))
+        writeFile ("src/" ++ cfgLangName cfg ++ "/" ++ m ++ lang ++ ".gf") (show mod)
+    
+    writeFile ("src/" ++ cfgLangName cfg ++ "/" ++ "Cat" ++ lang ++ ".gf") (show (ppModule Unqualified (MN (identS $ "Cat" ++ lang), cat)))
+
+ 
+addLincats cat lincats = Map.union (Map.fromList (map (\(x, y) -> (identS x, y)) lincats)) (jments cat)
 
 lookupCat gr lang = do
     case lookupModule gr (MN (identS ("Cat" ++ lang))) of 
@@ -85,7 +88,8 @@ lookupRes gr lang = do
         Bad f -> ModInfo {jments = Map.empty, msrc="", mstatus = MSComplete, mextend = [], mwith=Nothing, mopens=[], mexdeps=[], mflags = noOptions,  mtype = MTConcrete (MN  (identS $ "Cat" ++ lang))}
 
 
-learnAdjCN cfg cnc gr noSmarts trees = do 
+learnAdjCN cfg cnc gr noSmarts trees = do
+    let lang = (toTitle (cfgIso3 cfg))
     let name = "AdjCN"
     let pattern = (QueryPattern {pos=Just ["NOUN"], rel=Nothing, morpho=Nothing, idx="cn"}, 
                     QueryPattern {pos=Just ["ADJ"], rel=Just "mod", morpho=Nothing, idx="ap"})
@@ -94,46 +98,43 @@ learnAdjCN cfg cnc gr noSmarts trees = do
     a_ty <- lookupResDef gr (cnc,identS pos2)
     n_ty <- lookupResDef gr (cnc,identS pos1)
     (fun, args, lincat) <- learnPattern cfg cnc gr noSmarts patts name pattern 0 (a_ty, n_ty)
+    print fun
+    let cat = modifyCat [("CN", lincat)] gr lang
     let (fields, addArgs) = combineTrees cfg name "cn" "ap" modmap fun (Map.fromList args) ["ap", "cn"]
-    return (fields, lincat, addArgs ++ args)
+    return (fields, addArgs ++ args)
 
-learnV2 cfg cnc gr noSmarts trees np = do 
+learnV2 cfg cnc gr noSmarts trees = do 
     let name = "UseV2"
     let pattern = ( 
                     QueryPattern {pos=Just ["VERB"], rel=Nothing, morpho=Nothing, idx="vp"},
                     QueryPattern {pos=Just ["NOUN", "PRON"], rel = Just "comp:obj", morpho=Nothing, idx="np"})
     let (_, patts) = unzip $ query trees pattern
     let (pos1, pos2) = mapPOS pattern
-    
+    np <- lookupResDef gr (cnc,identS "NP")
     v_ty <- lookupResDef gr (cnc,identS pos1)
     (fun, args, lincat) <- learnPattern cfg cnc gr noSmarts patts name pattern 0 (np, v_ty)
     let fun' = Map.fromListWith (++) (map (\(f, t) -> (snd (head (filter (\(x, y) -> x == "vp") f)), [(map fst f, t)])) fun)
     
     let argMap = Map.fromList args
-    let (fields, addArgs) = combineTrees cfg name "vp" "np" modmap fun argMap ["np", "vp"]
-
-
-    {-let (f', _) = unzip (map (\x -> matchFields "vp" "np" ("Verb" ++ toTitle (cfgIso3 cfg)) x (Map.lookup x fun')) (fromJust (Map.lookup "vp" argMap)))
-    print (R f')
-    print (pp $ R (map (\(idx, (rest, val)) -> (idx, (Nothing, replaceIdent val m))) f'))
-    -}
+    let (fields, addArgs) = combineTrees cfg name "vp" "" modmap fun argMap ["np", "vp"]
     return (fields, addArgs ++ args)
     where
         values y = lookupValues y gr (cfgLangName cfg)
 
-learnPredVP cfg cnc gr noSmarts trees np = do 
+learnPredVP cfg cnc gr noSmarts trees = do 
     let name = "PredVP"
+    let lang = (toTitle (cfgIso3 cfg))
     let pattern = ( 
                     QueryPattern {pos=Just ["VERB", "AUX"], rel=Nothing, morpho=Nothing, idx="vp"},
                     QueryPattern {pos=Just ["NOUN", "PRON"], rel = Just "subj", morpho=Nothing, idx="np"})
     let (verb,_) = mapPOS pattern
+    np  <- lookupResDef gr (cnc, identS "NP")
     v_ty <- lookupResDef gr (cnc,identS verb)
     let (_, patts) = unzip $ query trees pattern
     (fun, args, lincat) <- learnPattern cfg cnc gr noSmarts patts name pattern 0 (np, v_ty)
     let argMap = Map.fromList args
-    print fun
-    let (fs, addArgs) = combineTrees cfg name "vp" "np" modmap fun argMap ["np", "vp"]
-
+    let (fs, addArgs) = combineTrees cfg name "vp" "" modmap fun argMap ["np", "vp"]
+    let cat = modifyCat [("VP", lincat)] gr lang
     return (fs, addArgs ++ args)
 
 
@@ -157,17 +158,17 @@ learnAdAP cfg cnc gr snoSmarts trees = do
 --    let (fields, addArgs) = combineTrees name "ap" "adv" modmap lang fun args ["adv", "ap"]
 --    return (fields, addArgs ++ args)
 
-learnAdv cfg cnc gr noSmarts trees (RecType np) = do
+learnAdv cfg cnc gr noSmarts trees = do
     -- first find everything that will output Adv
     let name1 = "PrepNP"
     let pattern = (QueryPattern {pos= Just ["ADP"], rel=Nothing, morpho=Nothing, idx="adp"}, 
                    QueryPattern {pos= Just ["NOUN"], rel = Just "comp:obj", morpho=Nothing, idx="np"})
     let (trees', patts) = unzip $ query trees pattern
     let (pos1, pos2) = mapPOS pattern
-    a_ty <- lookupResDef gr (cnc,identS pos2)
-    n_ty <- lookupResDef gr (cnc,identS pos1)
+    adp_ty <- lookupResDef gr (cnc,identS pos1)
+    np <- lookupResDef gr (cnc,identS "NP")
     
-    (fun, args, lincat) <- learnPattern cfg cnc gr noSmarts patts name1 pattern 1 ((RecType np),n_ty)
+    (fun, args, lincat) <- learnPattern cfg cnc gr noSmarts patts name1 pattern 1 (np,adp_ty)
     let argMap = Map.fromList args
     let (fields, addArgs) = combineTrees cfg name1 "np" "adp" modmap fun argMap ["adp", "np"]
 
@@ -181,7 +182,7 @@ learnAdv cfg cnc gr noSmarts trees (RecType np) = do
     let (pos1, pos2) = mapPOS pattern2
     a_ty <- lookupResDef gr (cnc,identS pos2)
     n_ty <- lookupResDef gr (cnc,identS pos1)
-    (fun, args, lincat) <- learnPattern cfg cnc gr noSmarts patts3 name2 pattern2 0 ((RecType np), n_ty)
+    (fun, args, lincat) <- learnPattern cfg cnc gr noSmarts patts3 name2 pattern2 0 (np, n_ty)
     let argMap = Map.fromList args
     let (fields2, addArgs2) = combineTrees cfg name2 "cn" "adv" modmap fun argMap ["adv", "cn"]
 
@@ -192,7 +193,7 @@ learnPositA lang ffs = getPosFun lang modmap "PositA" "a" "ap" ffs
 
 learnUseN lang ffs = getPosFun lang modmap "UseN" "n" "cn" ffs
 
-learnDetCN cfg cnc gr noSmarts trees (RecType cn) = do
+learnDetCN cfg cnc gr noSmarts trees = do
     -- fields to include and exclude for NP type
 
     let fields = lookupTerm ("Res" ++  toTitle (cfgIso3 cfg)) gr "Species" ["Number"]
@@ -233,15 +234,15 @@ learnDetCN cfg cnc gr noSmarts trees (RecType cn) = do
 
     let (dQuant, quantType) = defQuant fields numType artType
    
-
+    -- count_form?
     let name = "NumNP" 
     let pattern1 = (QueryPattern {pos=Just ["NOUN"], rel=Nothing, morpho=Nothing, idx="cn"}, 
                    QueryPattern {pos=Just ["NUM"], rel = Just "mod", morpho=Nothing, idx="num"})
     let (trees', patts) = unzip $ query trees pattern1
     let (pos1, pos2) = mapPOS pattern1
     a_ty <- lookupResDef gr (cnc,identS pos2)
-    n_ty <- lookupResDef gr (cnc,identS pos1)
-    (fun, args, lincat) <- learnPattern cfg cnc gr noSmarts patts name pattern1 0 (a_ty, n_ty)
+    (RecType cn) <- lookupResDef gr (cnc,identS "CN")
+    (fun, args, lincat) <- learnPattern cfg cnc gr noSmarts patts name pattern1 0 (a_ty, RecType cn)
 
     let np = Map.fromListWith (++) (getNewType fields' fun "cn")
     let argMap = Map.fromList args
@@ -272,12 +273,19 @@ learnDetCN cfg cnc gr noSmarts trees (RecType cn) = do
     let detCN = getFun "DetCN" ["det", "cn"] (R (f' ++ fMap ++ quantFs))
 
     let RecType lc = lincat2
-    print fields
+    
     let lincat' = RecType ([(LIdent l, r, filterTable t fields)| (LIdent l, r, t) <- (nubBy (\x y -> getLbl x == getLbl y) (lc ++ cn ++ quantType)), (showRawIdent l) `notElem` fields'])
-    print lincat2
-    print lincat'
 
-    return $ (Just ("Noun", [detCN, numNP, dQuant, def, indef, numSg, numPl]), [("NP", lincat'), ("Quant", RecType quantType), ("Det", RecType artType), ("Num", RecType numType)], (Map.keys np ++ fields'))
+    let lang = (toTitle (cfgIso3 cfg))
+
+    
+    
+    let lincats = [("NP", lincat'), ("Quant", RecType quantType), ("Det", RecType artType), ("Num", RecType numType)]
+    
+    
+    let сat' = modifyCat lincats gr lang
+    --let gr' = prependModule gr (MN (identS $ "Cat" ++ lang), cat)
+    return $ (Just ("Noun", [detCN, numNP, dQuant, def, indef, numSg, numPl]), (Map.keys np ++ fields'))
     where 
         getLbl (lbl, _, _)= lbl 
         
@@ -291,6 +299,10 @@ sepList param patt Nothing | otherwise = Just ((param,val), [delete (param, val)
 
 sortFeats [feat] mapp = Map.map (\mm -> Map.fromListWith (++) (mapMaybe (\m -> sepList feat m) mm)) mapp
 sortFeats (feat:feats) mapp = Map.map (\mm -> Map.map (sortFeats feats) (Map.fromListWith (++) (mapMaybe (\m -> sepList feat m) mm))) mapp -}
+modifyCat lincats gr lang = cat {jments = Map.fromList lincats'}
+    where 
+         cat = lookupCat gr lang
+         lincats' = Map.toList (jments cat) ++ (map (\(x, y) -> (identS x, CncCat (Just (L NoLoc y)) Nothing Nothing Nothing Nothing)) lincats)
 
         
 

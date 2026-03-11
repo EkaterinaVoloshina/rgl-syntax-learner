@@ -150,7 +150,7 @@ learnPattern cfg cnc gr smarts pat name pattern pos typs = do
                           when (cfgVerbose cfg) $ do
                             putStrLn ""
                             putStrLn ("Found term with accuracy "++show accuracy++":")
-                            print (pp t)
+                            print (pp t)     
                             putStrLn ""
                           return ((t, freq), getIdent (unpackT t))
                           
@@ -411,11 +411,15 @@ combineTrees cfg funName name wo mod fun argMap argNames = (Just (main, [getFun 
 --matchFields :: String -> String -> String -> String -> Maybe Term -> ((IdentTerm, [])
 matchFields name wo mod field Nothing       = ((LIdent (rawIdentS field), (Nothing, P (Vr (identS name)) (LIdent (rawIdentS field)))),[])
 matchFields name wo mod field (Just [(_,def)])   = ((LIdent (rawIdentS field), (Nothing, fst def)),[])
+matchFields name "" mod field (Just defs) = ((LIdent (rawIdentS field), (Nothing, head (map fst (sortOn snd defs')))), [])
+  where (order, defs') = unzip defs
 matchFields name wo mod field (Just defs) = getDefs name wo mod field (unzip defs)
   where 
-        
         getDefs name wo mod field (order, defs')            | length (nub order) == 1 = ((LIdent (rawIdentS field), (Nothing, head (map fst (sortOn snd defs')))), [])
-        getDefs name wo mod field (order, (def1:def2:rest)) | otherwise               =  ((LIdent (rawIdentS field), (Nothing, S (T TRaw [(PP (MN (identS "Prelude"), identS "True") [] , fst def1), (PP (MN (identS "Prelude"), identS "False") [] , fst def2)]) (P (Vr (identS wo)) (LIdent (rawIdentS "isPre"))))), [(wo, ["isPre"])])
+        getDefs name wo mod field (order1:order2:restO, (def1:def2:rest)) | otherwise               =  ((LIdent (rawIdentS field), (Nothing, S (T TRaw [getPreOrPost wo  order1 (fst def1), getPreOrPost wo order2 (fst def2)]) (P (Vr (identS wo)) (LIdent (rawIdentS "isPre"))))), [(wo, ["isPre"])])
+
+        getPreOrPost wo o def | o !! 0 == wo = (PP (MN (identS "Prelude"), identS "True") [] , def)
+        getPreOrPost wo o def | otherwise    = (PP (MN (identS "Prelude"), identS "False") [] , def)
 
 getNewType fields [] base = []       
 getNewType fields ((def, tree):funs) base | el `notElem` fields = ((el, [(map fst def, tree)]):(getNewType fields funs base))
