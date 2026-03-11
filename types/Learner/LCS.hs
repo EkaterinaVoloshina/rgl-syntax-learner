@@ -16,6 +16,7 @@ type WordGraph a = Array State ([Int],[(a,State)])
 -- are the same and always equal to the length of the lcs. The numbers
 -- in the innermost list correspond to positions in the input sequences.
 lcs :: Eq a => [[a]] -> [[[Int]]]
+lcs [] = [[]]
 lcs ws = maxpath (foldl1 intersect (map wordgraph ws))
 
 wordgraph :: [a] -> WordGraph a
@@ -81,7 +82,7 @@ maxpath graph
                    else propagate new edges
         
     maxima m is i n
-      | i < n     =
+      | i <= n    =
           let (step,_) = maxlens ! i
           in maxima (max m step) (if step==mm then i:is else is) (i+1) n
       | otherwise = (m,is)
