@@ -15,6 +15,7 @@ data Config
       , cfgAnalyticTenses :: Bool
       , cfgUpdPOS   :: String -> String -> String
       , cfgUpdForms :: String -> String -> [([String],String)] -> [([String],String)]
+      , cfgFilterLemmas :: String -> String -> Bool
       , cfgTreebanks:: [String]
       }
 
@@ -32,6 +33,7 @@ defaultConfig iso2 iso3 name =
          , cfgAnalyticTenses = False
          , cfgUpdPOS = \word pos -> pos
          , cfgUpdForms = \word pos forms -> forms
+         , cfgFilterLemmas = \word pos -> True
          , cfgTreebanks = []
          }
 
@@ -116,12 +118,25 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "superlative"     [("Degree","Sup")]           "superl"        "Superl"          "Degree"
   ,tag "infinitive"      []                           "inf"           "Inf"             "NonFinite"
   ,tag "past_participle" []                           "past_part"     "PastPart"        "Participle"
-  ,tag "participle"      [("VerbForm","Part")]        "part"          "Part"            "Participle"
+  ,tag "participle"      [("VerbForm","Part")]        "participle"    "Part"            "Participle"
   ,tag "indefinite"      [("Definite","Ind")]         "indef"         "Indef"           "Species"
   ,tag "definite"        [("Definite","Def")]         "def"           "Def"             "Species"
   ,tag "unspecified"     []                           "unspecified"   "Unspecified"     "Distance"
   ,tag "proximal"        [("Distance","Proximal")]    "proximal"      "Proximal"        "Distance"
   ,tag "distal"          [("Distance","Distal")]      "distal"        "Distal"          "Distance"
+  ,tag "present"         [("Tense","Pres")]           "present"       "Present"         "Tense"
+  ,tag "past"            [("Tense","Past")]           "past"          "Past"            "Tense"
+  ,tag "aorist"          [("Tense","Past")]           "aorist"        "Aorist"          "Tense"
+  ,tag "imperfect"       [("Tense","Imp")]            "imperfect"     "Imperfect"       "Tense"
+  ,tag "perfect"         []                         "perfect"       "Perfect"         "Tense"
+  ,tag "pluperfect"      []                         "pluperf"       "Pluperf"         "Tense"
+  ,tag "past-perfect"    []                         "past_perf"     "PastPerfect"     "Tense"
+  ,tag "future"          []                         "future"        "Future"          "Tense"
+  ,tag "past-future"     []                         "past_future"   "PastFuture"      "Tense"
+  ,tag "future-perfect"  []                         "future_perf"   "FuturePerfect"   "Tense"
+  ,tag "imperfective"    [("Aspect","Imp")]           "imperf"        "Imperf"          "Aspect"
+  ,tag "perfective"      [("Aspect","Perf")]          "perf"          "Perf"            "Aspect"
+  ,tag "continuative"    []                         "cont"          "Cont"            "Aspect"
   ,tag "indicative"      [("Mood","Ind")]             "indicative"    "Indicative"      "Mood"
   ,tag "imperative"      [("Mood","Imp")]             "imperative"    "Imperative"      "Mood"
   ,tag "conditional"     [("Mood","Cnd")]             "conditional"   "Cond"            "Mood"
@@ -194,7 +209,9 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "formal"          [("Polite","Form")]          "formal"        "Formal"          "Formality"
   ,tag "animate"         [("Animacy","Anim")]         "animate"       "Animate"         "Animacy"
   ,tag "inanimate"       [("Animacy","Inam")]         "inanimate"     "Inanimate"       "Animacy"
-  ,tag "noun-from-verb"  []                           "noun_from_verb" ""               ""
+  ,tag "noun-from-verb"  [("Form","NounFromVerb")]    "noun_from_verb""NounFromVerb"    "Form"
+  ,tag "adjectival"      [("Form","Adjectival")]      "adjectival"    "Adjectival"      "Form"
+  ,tag "adverbial"       [("Form","Adverbial")]       "adverbial"     "Adverbial"      "Form"
   ]
   where
     tag wikt_tag umorph_tag label ident typ = Tag wikt_tag umorph_tag (ident2label (identS label)) (identS ident) (identS typ)

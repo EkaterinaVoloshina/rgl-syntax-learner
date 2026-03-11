@@ -127,7 +127,9 @@ readWiktionary cfg = do
                       (x:xs) -> (c:x):xs
 
     updateTags es =
-      [(word,pos',tags,[(sort tags,form) | (tags,form) <- cfgUpdForms cfg word pos' forms]) | (word,pos,tags,forms) <- es, let pos'=cfgUpdPOS cfg word pos]
+      [(word,pos',tags,[(sort tags,form) | (tags,form) <- cfgUpdForms cfg word pos' forms]) | (word,pos,tags,forms) <- es
+                                                                                            , let pos'=cfgUpdPOS cfg word pos
+                                                                                            , cfgFilterLemmas cfg word pos']
 
 
 separateDerivationalMorphology cfg dict = do
