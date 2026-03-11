@@ -15,6 +15,7 @@ data Config
       , cfgAnalyticTenses :: Bool
       , cfgUpdPOS   :: String -> String -> String
       , cfgUpdForms :: String -> String -> [([String],String)] -> [([String],String)]
+      , cfgFilterLemmas :: String -> String -> Bool
       , cfgTreebanks:: [String]
       }
 
@@ -32,6 +33,7 @@ defaultConfig iso2 iso3 name =
          , cfgAnalyticTenses = False
          , cfgUpdPOS = \word pos -> pos
          , cfgUpdForms = \word pos forms -> forms
+         , cfgFilterLemmas = \word pos -> True
          , cfgTreebanks = []
          }
 
