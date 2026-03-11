@@ -1,6 +1,6 @@
-module Learner.LCS(lcs) where
+module Learner.LCS(lcs, commonality, difference) where
 
-import Data.List (mapAccumL)
+import Data.List (mapAccumL, transpose)
 import Data.Array
 import Data.Array.ST
 import qualified Data.Map as Map
@@ -18,6 +18,36 @@ type WordGraph a = Array State ([Int],[(a,State)])
 lcs :: Eq a => [[a]] -> [[[Int]]]
 lcs [] = [[]]
 lcs ws = maxpath (foldl1 intersect (map wordgraph ws))
+
+-- | Preserve the common elements and replace the differences with
+-- 'variables'. The first argument of the function should be
+-- a potentially infinite list whose elements substitute all differences.
+-- Example:
+--    commonality (repeat '_') ["2abcx","adx","alpx"] ==> [["_a__x","a_x","a__x"]]
+commonality :: Eq a => [a] -> [[a]] -> [[[a]]]
+commonality vars ws =
+  [zipWith (match vars 1) (transpose xs) ws | xs <- lcs ws]
+  where
+    match vars i []     w = []
+    match vars i (j:js) w
+      | i == j     = (w !! (i-1)) : match vars (i+1) js w
+      | otherwise  = case vars of
+                       (var:vars) -> var : match vars (i+1) (j:js) w
+
+-- | Preserve the different elements and replace the common ones with
+-- 'variables'. The first argument of the function should be
+-- a potentially infinite list whose elements substitute all commonalities.
+-- Example:
+--    commonality (repeat '_') ["2abcx","adx","alpx"] ==> [["_a__x","a_x","a__x"]]
+difference :: Eq a => [a] -> [[a]] -> [[[a]]]
+difference vars ws =
+  [zipWith (match vars 1) (transpose xs) ws | xs <- lcs ws]
+  where
+    match vars i []     w = []
+    match vars i (j:js) w
+      | i == j     = case vars of
+                       (var:vars) -> var : match vars (i+1) js w
+      | otherwise  = (w !! (i-1)) : match vars (i+1) (j:js) w
 
 wordgraph :: [a] -> WordGraph a
 wordgraph xs = runSTArray (newArray (0,length xs) ([],[]) >>= iterate1 0 xs)
