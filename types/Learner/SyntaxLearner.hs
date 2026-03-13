@@ -40,7 +40,7 @@ learn cfg = do
     trees <- fmap concat $ mapM (readCONLL cfg) (cfgTreebanks cfg)
 
     -- block of functions that handle CN type --
-    (adjCN, oneArgs) <- learnAdjCN cfg cnc gr noSmarts trees
+    (gr, adjCN, oneArgs) <- learnAdjCN cfg cnc gr noSmarts trees
 
     (adAP, twoArgs) <- learnAdAP cfg cnc gr noSmarts trees
     --(advAP, threeArgs) <- learnAdvAP lang cnc gr mapping noSmarts trees
@@ -57,7 +57,7 @@ learn cfg = do
     
     -- block of functions that handle VP type -- 
     (v2, verbArgs) <- learnV2 cfg cnc gr noSmarts trees
-    (predVP, verb2Args) <- learnPredVP cfg cnc gr noSmarts trees
+    (gr, predVP, verb2Args) <- learnPredVP cfg cnc gr noSmarts trees
 
 
     -- block of functions to create modules -- 
@@ -99,10 +99,9 @@ learnAdjCN cfg cnc gr noSmarts trees = do
     a_ty <- lookupResDef gr (cnc,identS pos2)
     n_ty <- lookupResDef gr (cnc,identS pos1)
     (fun, args, lincat) <- learnPattern cfg cnc gr noSmarts patts name pattern 0 (a_ty, n_ty)
-    print fun
-    gr <- modifyCat cfg gr [("CN", lincat)] 
+    gr <- modifyCat cfg gr [("AP",a_ty),("CN", lincat)]
     let (fields, addArgs) = combineTrees cfg name "cn" "ap" modmap fun (Map.fromList args) ["ap", "cn"]
-    return (fields, addArgs ++ args)
+    return (gr, fields, addArgs ++ args)
 
 learnV2 cfg cnc gr noSmarts trees = do 
     let name = "UseV2"
@@ -135,7 +134,7 @@ learnPredVP cfg cnc gr noSmarts trees = do
     let argMap = Map.fromList args
     let (fs, addArgs) = combineTrees cfg name "vp" "" modmap fun argMap ["np", "vp"]
     gr <- modifyCat cfg gr [("VP", lincat)]
-    return (fs, addArgs ++ args)
+    return (gr, fs, addArgs ++ args)
 
 
 learnAdAP cfg cnc gr snoSmarts trees = do 
@@ -187,10 +186,8 @@ learnAdv cfg cnc gr noSmarts trees = do
     let (fields2, addArgs2) = combineTrees cfg name2 "cn" "adv" modmap fun argMap ["adv", "cn"]
 
     return ([fields, fields2], addArgs2 ++ args)
-        
 
-learnPositA lang ffs = getPosFun lang modmap "PositA" "a" "ap" ffs
-
+learnPositA lang ffs = Just ("Adjective", [getFun "PositA" ["a"] (Vr (identS "a"))])
 learnUseN cfg ffs = Just ("Noun", [getFun "UseN" ["n"] (Vr (identS "n"))])
 
 learnDetCN cfg cnc gr noSmarts trees = do
