@@ -500,9 +500,7 @@ findParam gr cfg morpho (QC q) = do
                                 ResParam (Just (L _ ps)) _ -> do (id,ctxt) <- anyOf ps
                                                                  return ((mn,id),ctxt)
                                 _                          -> raise $ render (ppQIdent Qualified q <+> "has no parameter values defined")
-  trace (show (1,q,[v | t <- all_tags, ident t==snd q, v <- ud_tag t],morpho)) $ return ()
   morpho <- foldM (flip pop) morpho [v | t <- all_tags, ident t==snd q, v <- ud_tag t]
-  trace (show (2,q)) $ return ()
   foldM (\t (_,_,ty) -> fmap (App t) (findParam gr cfg morpho ty)) (QC q) ctxt
 
 findInh gr cfg morpho t ty@(QC q) = do
