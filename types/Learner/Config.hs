@@ -19,10 +19,12 @@ data Config
       , cfgTreebanks:: [String]
       }
 
-cfgLangModule cfg pref =
+cfgLangModuleFileName cfg pref =
   case cfgIso3 cfg of
     []     -> pref
     (c:cs) -> pref++toUpper c:cs
+
+cfgLangModuleName cfg pref = moduleNameS (cfgLangModuleFileName cfg "Cat")
 
 defaultConfig iso2 iso3 name =
   Config { cfgIso2 = iso2

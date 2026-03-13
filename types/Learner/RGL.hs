@@ -23,14 +23,14 @@ data RGL
 
 readGrammar :: Config -> IO RGL
 readGrammar cfg = withStatus ("Reading grammar from "++fdir) $ do
-  let resX       = moduleNameS (cfgLangModule cfg "Res")
-      catX       = moduleNameS (cfgLangModule cfg "Cat")
+  let resX       = cfgLangModuleName cfg "Res"
+      catX       = cfgLangModuleName cfg "Cat"
       cat        = moduleNameS "Cat"
       numeral    = moduleNameS "Numeral"
-      dictX      = moduleNameS (cfgLangModule cfg "Dict")
-      dictXAbs   = moduleNameS (cfgLangModule cfg "Dict"++"Abs")
-      paradigmsX = moduleNameS (cfgLangModule cfg "Paradigms")
-      numeralX   = moduleNameS (cfgLangModule cfg "Numeral")
+      dictX      = cfgLangModuleName cfg "Dict"
+      dictXAbs   = moduleNameS (cfgLangModuleFileName cfg "Dict"++"Abs")
+      paradigmsX = cfgLangModuleName cfg "Paradigms"
+      numeralX   = cfgLangModuleName cfg "Numeral"
       predef     = moduleNameS "Predef"
       prelude    = moduleNameS "Prelude"
       paramX     = moduleNameS "ParamX"
@@ -79,12 +79,12 @@ loadGrammar fpath = batchCompile noOptions Nothing [fpath]
 
 writeGrammar :: Config -> RGL -> IO ()
 writeGrammar cfg rgl = withStatus ("Writing grammar to "++fdir) $ do
-  writeModule (cfgLangModule cfg "Res") (rglRes rgl)
-  writeModule (cfgLangModule cfg "Cat") (rglCat rgl)
-  writeModule (cfgLangModule cfg "Numeral") (rglNumeral rgl)
-  writeModule (cfgLangModule cfg "Dict") (rglDict rgl)
-  writeModule (cfgLangModule cfg "Dict"++"Abs") (rglDictAbs rgl)
-  writeModule (cfgLangModule cfg "Paradigms") (rglParadigms rgl)
+  writeModule (cfgLangModuleFileName cfg "Res") (rglRes rgl)
+  writeModule (cfgLangModuleFileName cfg "Cat") (rglCat rgl)
+  writeModule (cfgLangModuleFileName cfg "Numeral") (rglNumeral rgl)
+  writeModule (cfgLangModuleFileName cfg "Dict") (rglDict rgl)
+  writeModule (cfgLangModuleFileName cfg "Dict"++"Abs") (rglDictAbs rgl)
+  writeModule (cfgLangModuleFileName cfg "Paradigms") (rglParadigms rgl)
   where
     fdir = "src" </> cfgLangName cfg
 

@@ -1,7 +1,7 @@
 module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                identS,Ident,
                rawIdentS,RawIdent, unionPatts,
-               noSmarts, lookupTerm,
+               noSmarts,
                learnPattern, query, getPosFun, getIds,
                getFun, getModule, matchFields,
                combineTrees, mapPOS, getNewType, 
@@ -343,12 +343,8 @@ getFun name args f = (identS name, CncFun (Nothing) (Just (L NoLoc (getArgs args
     getArgs [] f = f 
     getArgs (arg:args) f = Abs Explicit (identS arg) (getArgs args f) 
     
-getModule lang name jments = ppModule Unqualified (MN (identS (name ++ lang)), ModInfo {jments = funs, msrc="", mstatus = MSComplete, mextend = [(MN (identS ("Cat" ++ lang)), MIAll)], mwith=Nothing, mopens=[OSimple (MN (identS ("Res" ++ lang)))], mexdeps=[], mflags = noOptions,  mtype = MTConcrete (MN  (identS name))})
+getModule cfg name jments = ppModule Unqualified (cfgLangModuleName cfg name, ModInfo {jments = funs, msrc="", mstatus = MSComplete, mextend = [(cfgLangModuleName cfg "Cat", MIAll)], mwith=Nothing, mopens=[OSimple (cfgLangModuleName cfg "Res")], mexdeps=[], mflags = noOptions,  mtype = MTConcrete (MN  (identS name))})
   where funs = Map.fromList jments
-
-lookupTerm cnc gr idx fs = case lookupResDef gr ((MN (identS cnc)),identS idx) of
-    Ok (QC (_,m))   -> ((showIdent m):fs)
-    Bad msg -> fs
 
 -- creates a placeholder 
 artFields fields def | "Species" `elem` fields = [(LIdent (rawIdentS "s"), ((Nothing, Empty), Sort (identS "Str"))), (LIdent (rawIdentS "sp"), ((Nothing, getType def), (Sort (identS ("Species")))))] 
@@ -401,7 +397,7 @@ unionPatts (patts1, p1) (patts2, p2) = filter (\p -> (getPosition p p2) `elem` p
 combineTrees cfg funName name wo mod [] argMap argNames = (Nothing, [])
 combineTrees cfg funName name wo mod fun argMap argNames = (Just (main, [getFun funName argNames (R fields)]), concat addArgs)
     where 
-        modname = cfgLangModule cfg (fromJust (Map.lookup wo mod))
+        modname = cfgLangModuleFileName cfg (fromJust (Map.lookup wo mod))
         main = fromJust (Map.lookup name mod)
         (fields, addArgs) = unzip (map (\x -> matchFields name wo modname x (Map.lookup x varTrees)) (fromJust (Map.lookup name argMap)))
         -- check that variation comes from word order variation
