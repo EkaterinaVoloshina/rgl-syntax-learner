@@ -279,7 +279,9 @@ learnDetCN cfg cnc gr noSmarts trees = do
 
     let RecType lc = lincat2
     
-    let lincat' = RecType ([(LIdent l, r, filterTable t fields)| (LIdent l, r, t) <- (nubBy (\x y -> getLbl x == getLbl y) (lc ++ cn ++ quantType)), (showRawIdent l) `notElem` fields'])
+    let lincat' = RecType [(LIdent l, r, filterTable t fields)| (lbl@(LIdent l), r, t) <- (nubBy (\x y -> getLbl x == getLbl y) (lc ++ cn ++ quantType))
+                                                              , (showRawIdent l) `notElem` fields'
+                                                              , isNothing (isLockLabel lbl)]
 
     
     let lincats = [("NP", lincat'), ("Quant", RecType quantType), ("Det", RecType quantType), ("Num", RecType numType), ("Det", RecType detType)]
