@@ -196,7 +196,7 @@ learnAdv cfg cnc gr noSmarts trees = do
 
 learnPositA lang ffs = getPosFun lang modmap "PositA" "a" "ap" ffs
 
-learnUseN lang ffs = getPosFun lang modmap "UseN" "n" "cn" ffs
+learnUseN cfg ffs = Just ("Noun", [getFun "UseN" ["n"] (Vr (identS "n"))])
 
 learnDetCN cfg cnc gr noSmarts trees = do
     -- fields to include and exclude for NP type
@@ -291,7 +291,7 @@ learnDetCN cfg cnc gr noSmarts trees = do
     
     let сat' = modifyCat lincats gr cfg
     --let gr' = prependModule gr (MN (identS $ "Cat" ++ lang), cat)
-    return $ (Just ("Noun", [detCN, numNP, dQuant, def, indef, numSg, numPl]), (Map.keys np ++ fields'))
+    return $ (Just ("Noun", [detCN, dQuant, def, indef, numSg, numPl]), (Map.keys np ++ fields'))
     where 
         getLbl (lbl, _, _)= lbl 
         
