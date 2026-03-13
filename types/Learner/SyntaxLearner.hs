@@ -61,15 +61,25 @@ learn cfg = do
 
 
     -- block of functions to create modules -- 
-    let cat = lookupCat gr cfg
-    --print (show (ppModule Unqualified (cfgLangModuleName cfg "Cat", cat)))
-    -- lincats to Res and Cat
-    let jments = Map.fromListWith (++) (catMaybes ([positA, useN, adAP, adjCN,  detCN, predVP, v2] ++ advCN))
-    forM_ (Map.toList jments) $ \(m, funs) -> do 
-        let mod = getModule cfg m funs
-        writeFile ("src" </> cfgLangName cfg </> cfgLangModuleFileName cfg m ++ ".gf") (show mod)
-    
-    writeFile ("src" </> cfgLangName cfg </> cfgLangModuleFileName cfg "Cat" ++ ".gf") (show (ppModule Unqualified (cfgLangModuleName cfg "Cat", cat)))
+    let cat_mn     = cfgLangModuleName cfg "Cat"
+        grammar_mn = cfgLangModuleName cfg "Grammar"
+    cat_mo     <- lookupModule gr cat_mn
+    grammar_mo <- lookupModule gr grammar_mn
+
+    grammar_mo <-
+      foldM (\lang_mo (m, funs) ->
+                 do let mn = cfgLangModuleName cfg m
+                        mo = getModule cfg mn (moduleNameS m) funs
+                    writeFile ("src" </> cfgLangName cfg </> cfgLangModuleFileName cfg m ++ ".gf") (show mo)
+                    case lookup mn (mextend lang_mo) of
+                      Nothing -> return grammar_mo{mextend=(mn,MIAll):mextend lang_mo}
+                      Just _  -> return grammar_mo)
+            grammar_mo
+            ((Map.toList . Map.fromListWith (++))
+                  (catMaybes ([positA, useN, adAP, adjCN,  detCN, predVP, v2] ++ advCN)))
+
+    writeFile ("src" </> cfgLangName cfg </> cfgLangModuleFileName cfg "Grammar" ++ ".gf") (show (ppModule Unqualified (grammar_mn,grammar_mo)))
+    writeFile ("src" </> cfgLangName cfg </> cfgLangModuleFileName cfg "Cat" ++ ".gf") (show (ppModule Unqualified (cat_mn,cat_mo)))
 
  
 addLincats cat lincats = Map.union (Map.fromList (map (\(x, y) -> (identS x, y)) lincats)) (jments cat)

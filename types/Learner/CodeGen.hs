@@ -342,9 +342,22 @@ getFun name args f = (identS name, CncFun (Nothing) (Just (L NoLoc (getArgs args
   where 
     getArgs [] f = f 
     getArgs (arg:args) f = Abs Explicit (identS arg) (getArgs args f) 
-    
-getModule cfg name jments = ppModule Unqualified (cfgLangModuleName cfg name, ModInfo {jments = funs, msrc="", mstatus = MSComplete, mextend = [(cfgLangModuleName cfg "Cat", MIAll)], mwith=Nothing, mopens=[OSimple (cfgLangModuleName cfg "Res")], mexdeps=[], mflags = noOptions,  mtype = MTConcrete (MN  (identS name))})
-  where funs = Map.fromList jments
+
+getModule cfg cnc_mn abs_mn jments =
+  ppModule Unqualified (cnc_mn,mo)
+  where
+    mo =
+      ModInfo
+        { jments = Map.fromList jments
+        , msrc=""
+        , mstatus = MSComplete
+        , mextend = [(cfgLangModuleName cfg "Cat", MIAll)]
+        , mwith=Nothing
+        , mopens=[OSimple (cfgLangModuleName cfg "Res")]
+        , mexdeps=[]
+        , mflags = noOptions
+        , mtype = MTConcrete abs_mn
+        }
 
 -- creates a placeholder 
 artFields fields def | "Species" `elem` fields = [(LIdent (rawIdentS "s"), ((Nothing, Empty), Sort (identS "Str"))), (LIdent (rawIdentS "sp"), ((Nothing, getType def), (Sort (identS ("Species")))))] 
