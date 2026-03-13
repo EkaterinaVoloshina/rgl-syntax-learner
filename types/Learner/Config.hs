@@ -24,7 +24,7 @@ cfgLangModuleFileName cfg pref =
     []     -> pref
     (c:cs) -> pref++toUpper c:cs
 
-cfgLangModuleName cfg pref = moduleNameS (cfgLangModuleFileName cfg "Cat")
+cfgLangModuleName cfg pref = moduleNameS (cfgLangModuleFileName cfg pref)
 
 defaultConfig iso2 iso3 name =
   Config { cfgIso2 = iso2
