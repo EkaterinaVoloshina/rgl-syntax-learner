@@ -483,13 +483,8 @@ split sep (c:cs)
 findStr gr cfg morpho vs t (Sort s) | s == cStr  = return (t,vs)
 findStr gr cfg morpho vs t (RecType fs) = do
   (l,_,ty) <- anyOf fs
-  morpho <- case [ud_tag t | t <- all_tags, label t==l] of
-              (v:_) -> pop v morpho
-              _     -> return morpho
-  --trace ("buildStr: empty patt, vs=" ++ show vs ++ show morpho) $ 
+  morpho <- foldM (flip pop) morpho [v | t <- all_tags, label t==l, v <- ud_tag t]
   findStr gr cfg morpho vs (P t l) ty
-
-
 findStr gr cfg morpho vs t (Table arg res) = do
   v <- findParam gr cfg morpho arg
   let i = length vs+1
@@ -505,11 +500,9 @@ findParam gr cfg morpho (QC q) = do
                                 ResParam (Just (L _ ps)) _ -> do (id,ctxt) <- anyOf ps
                                                                  return ((mn,id),ctxt)
                                 _                          -> raise $ render (ppQIdent Qualified q <+> "has no parameter values defined")
-  morpho <- case [ud_tag t | t <- all_tags, ident t==snd q] of
-              (v:_) | v /= []
-                   -> pop v morpho
-              _     -> return morpho
-
+  trace (show (1,q,[v | t <- all_tags, ident t==snd q, v <- ud_tag t],morpho)) $ return ()
+  morpho <- foldM (flip pop) morpho [v | t <- all_tags, ident t==snd q, v <- ud_tag t]
+  trace (show (2,q)) $ return ()
   foldM (\t (_,_,ty) -> fmap (App t) (findParam gr cfg morpho ty)) (QC q) ctxt
 
 findInh gr cfg morpho t ty@(QC q) = do
@@ -517,9 +510,7 @@ findInh gr cfg morpho t ty@(QC q) = do
   return (t,v,ty)
 findInh gr cfg morpho t (RecType fs) = do
   (l,_,ty) <- anyOf fs
-  morpho  <- case [ud_tag t | t <- all_tags, label t==l] of
-              (v:_) -> pop v morpho
-              _     -> return morpho
+  morpho  <- foldM (flip pop) morpho [v | t <- all_tags, label t==l, v <- ud_tag t]
   findInh gr cfg morpho (P t l) ty
 findInh gr cfg morpho t ty = empty
 
@@ -589,7 +580,7 @@ anyOf xs = GenM (choose xs)
 -- fix the pop issue
 pop x  []     = empty
 pop x0 (x:xs)
-  | x `elem` x0   = return xs
+  | x == x0   = return xs
   | otherwise = do xs <- pop x0 xs
                    return (x:xs)
 
