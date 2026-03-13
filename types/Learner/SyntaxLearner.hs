@@ -12,6 +12,7 @@ import Data.Char (toUpper,toLower)
 import Data.Maybe
 import GF.Infra.Ident 
 import GF.Grammar.Lookup
+import GF.Grammar.Lockfield
 import Control.Monad
 import Data.List
 import GF.Data.Operations
@@ -270,9 +271,10 @@ learnDetCN cfg cnc gr noSmarts trees = do
     let f2 = Map.fromListWith (++) (getNewType fields' fun3 "cn")
     let argMap2 = Map.fromList args2
     
-    let fMap = addArgs f2 (nub (map (\(LIdent idx,_,_) -> showRawIdent idx) cn)) fields'
+    let fMap = addArgs f2 (nub [showRawIdent idx | (lbl@(LIdent idx),_,_) <- cn, isNothing (isLockLabel lbl)]) fields'
     let quantFs = [getOneField (showRawIdent x) "det" | (LIdent x, _,_) <- quantType, (showRawIdent x) `Map.notMember` f2]
     let (f', _) = unzip $ [matchFields "cn" "det" "NounMkd" "s" (Map.lookup "s" f2)]
+    
     let detCN = getFun "DetCN" ["det", "cn"] (R (f' ++ fMap ++ quantFs))
 
     let RecType lc = lincat2
