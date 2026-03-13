@@ -5,7 +5,7 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                learnPattern, query, getPosFun, getIds,
                getFun, getModule, matchFields,
                combineTrees, mapPOS, getNewType, 
-               getOneField, defArt, indefArt, defQuant, createArt, createNum,
+               getOneField, defArt, indefArt, detQuant, createArt, createNum,
                QueryPattern(..), Val(..)) where
 
 import Debug.Trace(trace, traceShowId, traceShow)
@@ -383,8 +383,7 @@ indefArt fields sp = createArt "IndefArt" "Indef" fields sp
 defArt fields sp = createArt "DefArt" "Def" fields sp
 -- concat in s; copy def
 
-defQuant fields num art = (getFun "DetQuant" ["det", "num"] (R (map (\x -> concatFields x ("det", fs2) ("num", fs1)) (nub $ fs1 ++ fs2))), typ)
-        
+detQuant fields num art = (getFun "DetQuant" ["det", "num"] (R (map (\x -> concatFields x ("det", fs2) ("num", fs1)) (nub $ fs1 ++ fs2))), typ)
   where 
     fs typ = map (\(LIdent l, _, _) -> showRawIdent l) typ
     fs1 = fs num 
