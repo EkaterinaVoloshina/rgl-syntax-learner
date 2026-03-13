@@ -360,20 +360,20 @@ getModule cfg cnc_mn abs_mn jments =
         }
 
 -- creates a placeholder 
-artFields fields def | "Species" `elem` fields = [(LIdent (rawIdentS "s"), ((Nothing, Empty), Sort (identS "Str"))), (LIdent (rawIdentS "sp"), ((Nothing, getType def), (Sort (identS ("Species")))))] 
+artFields fields def | "Species" `elem` fields = [(theLinLabel, ((Nothing, Empty), Sort cStr)), (LIdent (rawIdentS "sp"), ((Nothing, getType def), (Sort (identS ("Species")))))] 
   where 
     w = words def 
 
     getType def | length w == 2 = App (Cn (identS (w !! 0))) (Cn (identS (w !! 1)))
     getType def | otherwise = Cn (identS def)
 
-artFields fields def | otherwise               = [(LIdent (rawIdentS "s"), ((Nothing, Empty), Sort (identS "Str")))]
+artFields fields def | otherwise               = [(theLinLabel, ((Nothing, Empty), Sort cStr))]
 
 createPlaceholder name fields = (getFun name [] (R fs), tp)
     where (fs, tp) = unzip $ map (\(l, (val, ty)) -> ((l, val), (l, [], ty))) fields
 
 createNum name value = createPlaceholder name fields
-    where fields = [(LIdent (rawIdentS "s"), ((Nothing, Empty), Sort (identS "Str"))), (LIdent (rawIdentS "n"), ((Nothing, Cn (identS value)), Sort (identS "Number")))]
+    where fields = [(theLinLabel, ((Nothing, Empty), Sort cStr)), (LIdent (rawIdentS "n"), ((Nothing, Cn (identS value)), Sort (identS "Number")))]
 
 createArt name value fields sp | value `elem` sp = createPlaceholder name (artFields fields value)
 createArt name value fields sp | otherwise = createPlaceholder name (artFields fields vs)
