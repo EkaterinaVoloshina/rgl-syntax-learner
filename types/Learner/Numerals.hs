@@ -7,6 +7,7 @@ import qualified Data.Map as Map
 import Learner.RGL
 import Learner.Config hiding (POS)
 import Learner.CLDR
+import Learner.LCS
 
 options =
   [ Option "v" [] (NoArg (\cfg->cfg{cfgVerbose=True})) "verbose output"
@@ -17,7 +18,7 @@ learn cfg = do
 
   rgl <- readGrammar cfg
 
-  rgl <- addCatLincat rgl "Digits"  (RecType [(ident2label s,[],Sort cStr),(ident2label n,[],Cn number),(ident2label tl,[],Cn dtail)])
+  {-rgl <- addCatLincat rgl "Digits"  (RecType [(ident2label s,[],Sort cStr),(ident2label n,[],Cn number),(ident2label tl,[],Cn dtail)])
   rgl <- addCatLincat rgl "Decimal" (RecType [(ident2label s,[],Sort cStr),(ident2label n,[],Cn number),(ident2label hasDot,[],Cn cBool)])
 
   let lincatDig   = RecType [(ident2label s,[],Sort cStr),(ident2label n,[],Cn number)]
@@ -97,7 +98,12 @@ learn cfg = do
                                                                                             (C (Cn cBIND)
                                                                                                (P (Vr d) (ident2label s))))
                                                                  ,assign (ident2label n) (Cn pl)
-                                                                 ,assign (ident2label hasDot) (Cn cTrue)])))
+                                                                 ,assign (ident2label hasDot) (Cn cTrue)]))) -}
+
+
+  let xs = evalRules [((1,9),[Vr (identS "x")])] "spellout-numbering" 20 99 rbnf
+  mapM_ (\(m,n,t1) -> print (m,n,ppTerm Unqualified 0 (concatTerms t1))) xs
+  mapM (print . map (ppTerm Unqualified 0 . concatTerms)) (commonality (repeat (Vr (identS "y"))) [t | (m,n,t) <- xs, m/=n])
   writeGrammar cfg rgl
   where
     s = identS "s"
@@ -137,33 +143,35 @@ learn cfg = do
       return rgl{rglNumeral=m{jments=jments'}}
 
     transferRule1 rgl rbnf rule i =
-      case liftM2 (,) (evalRule "spellout-numbering" i rbnf) (evalRule "spellout-numbering" (i*100) rbnf) of
-        Nothing    -> do putStrLn ("No rbnf found for "++cfgLangName cfg++" number 1")
+      case liftM2 (,) (foo $ evalRules [] "spellout-numbering" i i rbnf) (foo $ evalRules [] "spellout-numbering" (i*100) (i*100) rbnf) of
+        []         -> do putStrLn ("No rbnf found for "++cfgLangName cfg++" number 1")
                          return rgl
-        Just (s_val,hundred_val)
-                   -> do addRule rgl rule (R [assign (ident2label s) (K s_val)
-                                             ,assign (ident2label hundred) (K hundred_val)
+        [(s_val,hundred_val)]
+                   -> do addRule rgl rule (R [assign (ident2label s) s_val
+                                             ,assign (ident2label hundred) hundred_val
                                              ,assign (ident2label n) (Cn sg)
                                              ])
 
     transferRule10 rgl rbnf rule i =
-      case evalRule "spellout-numbering" i rbnf of
-        Nothing    -> do putStrLn ("No rbnf found for "++cfgLangName cfg++" number "++show i)
-                         return rgl
-        Just s_val -> do addRule rgl rule (R [assign (ident2label s) (K s_val)
-                                             ,assign (ident2label n) (Cn pl)])
+      case foo $ evalRules [] "spellout-numbering" i i rbnf of
+        []      -> do putStrLn ("No rbnf found for "++cfgLangName cfg++" number "++show i)
+                      return rgl
+        [s_val] -> do addRule rgl rule (R [assign (ident2label s) s_val
+                                          ,assign (ident2label n) (Cn pl)])
 
     transferRule rgl rbnf rule i =
-      case liftM4 (,,,) (evalRule "spellout-numbering" i rbnf)
-                        (evalRule "spellout-numbering" (i+10) rbnf)
-                        (evalRule "spellout-numbering" (i*10) rbnf)
-                        (evalRule "spellout-numbering" (i*100) rbnf) of
-        Nothing  -> do putStrLn ("No rbnf found for "++cfgLangName cfg++" number "++show i)
+      case liftM4 (,,,) (foo $ evalRules [] "spellout-numbering" i i rbnf)
+                        (foo $ evalRules [] "spellout-numbering" (i+10)  (i+10) rbnf)
+                        (foo $ evalRules [] "spellout-numbering" (i*10)  (i*10) rbnf)
+                        (foo $ evalRules [] "spellout-numbering" (i*100) (i*100) rbnf) of
+        []       -> do putStrLn ("No rbnf found for "++cfgLangName cfg++" number "++show i)
                        return rgl
-        Just (s,teen,ten,hundred)
-                 -> do addRule rgl rule (App (App (App (App (Vr (identS "mkDigit")) (K s)) (K teen)) (K ten)) (K hundred))
+        [(s,teen,ten,hundred)]
+                 -> do addRule rgl rule (App (App (App (App (Vr (identS "mkDigit")) s) teen) ten) hundred)
 
     addRule rgl fn def = do
       let m = rglNumeral rgl
           jments' = Map.insert (identS fn) (CncFun Nothing (Just (noLoc def)) Nothing Nothing) (jments m)
       return rgl{rglNumeral=m{jments=jments'}}
+
+    foo = map (\(x,y,ts) -> concatTerms ts)

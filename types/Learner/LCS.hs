@@ -38,7 +38,7 @@ commonality vars ws =
 -- 'variables'. The first argument of the function should be
 -- a potentially infinite list whose elements substitute all commonalities.
 -- Example:
---    commonality (repeat '_') ["2abcx","adx","alpx"] ==> [["_a__x","a_x","a__x"]]
+--    difference (repeat '_') ["2abcx","adx","alpx"] ==> [["2_bc_","_d_","_lp_"]]
 difference :: Eq a => [a] -> [[a]] -> [[[a]]]
 difference vars ws =
   [zipWith (match vars 1) (transpose xs) ws | xs <- lcs ws]
@@ -48,7 +48,24 @@ difference vars ws =
       | i == j     = case vars of
                        (var:vars) -> var : match vars (i+1) js w
       | otherwise  = (w !! (i-1)) : match vars (i+1) (j:js) w
+{-
+-- substDiff :: Eq a => [a] -> [[a]] -> [[[a]]]
+substDiff vars ws =
+  [match (repeat 1) xs ws | xs <- lcs ws]
+  where
+    match cur []     ws = ([],[])
+    match cur (x:xs) ws
+      | all null vs     = (c:patt,vss)
+      | otherwise       = (c:patt,vs : vss)
+      where
+        c = head (head ws')
+        (vs,next,ws') = unzip3 (zipWith3 substring cur x ws)
+        (patt,vss)    = match next xs ws'
 
+    substring i j w =
+      case splitAt (j-i) w of
+        (vs,_:ws) -> (vs,j+1,ws)
+-}
 wordgraph :: [a] -> WordGraph a
 wordgraph xs = runSTArray (newArray (0,length xs) ([],[]) >>= iterate1 0 xs)
   where

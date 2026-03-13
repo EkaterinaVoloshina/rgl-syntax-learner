@@ -180,6 +180,7 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "illative"        [("Case","Ill")]             "illative"      "Ill"             "Case"
   ,tag "oblique"         [("Case","Obl")]             "oblique"       "Obl"             "Case"
   ,tag "vocative"        [("Case","Voc")]             "vocative"      "Voc"             "Case"
+  ,tag "possessive"      [("Case","Poss")]            "possessive"    "Poss"            "Case"
   ,tag "singular"        [("Number","Sing")]          "singular"      "Sg"              "Number"
   ,tag "plural"          [("Number","Plur")]          "plural"        "Pl"              "Number"
   ,tag "dual"            [("Number","Dual")]          "dual"          "Dl"              "Number"
@@ -212,6 +213,8 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "noun-from-verb"  [("Form","NounFromVerb")]    "noun_from_verb""NounFromVerb"    "Form"
   ,tag "adjectival"      [("Form","Adjectival")]      "adjectival"    "Adjectival"      "Form"
   ,tag "adverbial"       [("Form","Adverbial")]       "adverbial"     "Adverbial"      "Form"
+  ,tag "inclusive"       [("Clusivity","Inclusive")]  "inclusive"     "Inclusive"       "Clusivity"
+  ,tag "exclusive"       [("Clusivity","Exclusive")]  "exclusive"     "Exclusive"       "Clusivity"
   ]
   where
     tag wikt_tag umorph_tag label ident typ = Tag wikt_tag umorph_tag (ident2label (identS label)) (identS ident) (identS typ)
