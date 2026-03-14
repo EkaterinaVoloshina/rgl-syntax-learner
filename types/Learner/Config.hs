@@ -13,6 +13,7 @@ data Config
       , cfgVerbose  :: Bool
       , cfgMinForms :: Int
       , cfgAnalyticTenses :: Bool
+      , cfgSyntaxStopping :: Double
       , cfgUpdPOS   :: String -> String -> String
       , cfgUpdForms :: String -> String -> [([String],String)] -> [([String],String)]
       , cfgFilterLemmas :: String -> String -> Bool
@@ -33,6 +34,7 @@ defaultConfig iso2 iso3 name =
          , cfgVerbose = False
          , cfgMinForms = 5
          , cfgAnalyticTenses = False
+         , cfgSyntaxStopping = 0.95
          , cfgUpdPOS = \word pos -> pos
          , cfgUpdForms = \word pos forms -> forms
          , cfgFilterLemmas = \word pos -> True

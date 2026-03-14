@@ -21,6 +21,7 @@ import GF.Grammar.Printer
 
 options =
   [ Option "v" [] (NoArg (\cfg->cfg{cfgVerbose=True})) "verbose output"
+  , Option [] ["stopping"] (ReqArg (\s cfg->cfg{cfgSyntaxStopping=read s}) "number") "minimal accuracy"
   ]
 
 -- | Map of modules where each type and its related functions are defined

@@ -127,7 +127,7 @@ learnPattern cfg cnc gr smarts pat name pattern pos typs = do
                                         hsep (punctuate ";" (map (\(t1,t2,ty) -> pp t1 <> pp '=' <> pp t2 <+> pp ':' <+> pp ty) inh)))
 
       let (freq, accuracy,_,t, dt) = instantiate dim_dataset dataset t0 []
-      if dim_inh > 0 && accuracy > stopping
+      if dim_inh > 0 && accuracy > cfgSyntaxStopping cfg
         then do when (cfgVerbose cfg) $ do
                   putStrLn ""
                   putStrLn ("Found term with accuracy "++show accuracy++":")
@@ -146,7 +146,7 @@ learnPattern cfg cnc gr smarts pat name pattern pos typs = do
                                 [0..dim_dataset-1])
             in case res of
                   ((freq,accuracy,subst0,t,dt):rest)
-                    | null rest || accuracy > stopping -> do
+                    | null rest || accuracy > cfgSyntaxStopping cfg -> do
                           when (cfgVerbose cfg) $ do
                             putStrLn ""
                             putStrLn ("Found term with accuracy "++show accuracy++":")
@@ -194,9 +194,6 @@ learnPattern cfg cnc gr smarts pat name pattern pos typs = do
     getOneIdent (S (T _ t) _) = concat (map getTerm t)
     getOneIdent _  = []
 
-
-
-    stopping = 0.95
 
     buildStr s []     f = return (Empty,s)
     buildStr s [x]    f = f s x
@@ -256,7 +253,7 @@ learnPattern cfg cnc gr smarts pat name pattern pos typs = do
        let subst0'' = subst0++subst0'
            dataset' = map (selectVars subst0'') dataset
            (freq,accuracy,_, t, dt) = instantiate dim_dataset dataset' t0 subst0''
-       in if null rest || accuracy > stopping
+       in if null rest || accuracy > cfgSyntaxStopping cfg
             then do when (cfgVerbose cfg) $ do
                       putStrLn ""
                       putStrLn ("Found term with accuracy "++show accuracy++":")
