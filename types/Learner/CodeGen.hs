@@ -94,26 +94,15 @@ learnPattern cfg cnc gr smarts pat name pattern pos typs = do
                 inh <- runGenM $ do
                           ((_,_,_,morpho,_),t,ty) <- anyOf patt
                           findInh gr cctxt morpho t ty
-                
-                
 
-                (str,vs) <- buildStr [] (sortOn (\((id,_,_,_,_),_,_)->id) patt)
-                                       (\vs ((_,_,_,morpho,_),t,ty) -> findStr gr cctxt morpho vs t ty)
-                
-                --trace (show ((ppTerm Unqualified 0str), vs)) $ return ()
-                -- print vs
-                -- if length patt > 1 then 
-               
-               -- trace (show str) $ return ()
-                
+                (vs,ts) <- mapAccumM (\vs ((id,_,_,morpho,_),t,ty) -> findStr gr cctxt vs id morpho t ty) [] patt
+                let str = foldr (\(_,t1) t2 -> case t2 of {Empty -> t1; t2 -> C t1 t2}) Empty (sortOn fst ts)
+
                 return ((str,length vs,length inh),[(reverse vs,inh)])
-    
-
     
     m <- case res of
       Ok m    -> return m
       Bad msg -> fail msg
-
 
     fieldsM <- forM (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
      -- examples
@@ -135,9 +124,9 @@ learnPattern cfg cnc gr smarts pat name pattern pos typs = do
                   print (pp t)
                   putStrLn ""
                 return ((t, freq), getIdent (unpackT t))                
-            
+
         else let types = map (\(_,_,ty)->ty) (fst (head dataset))
-                 res   = (reverse . sortOn (\(_,acc,_,_,_)->acc))
+                 res   = (sortOn (\(_,acc,_,_,_)-> -acc))
                             (map (\varIndex ->
                                     let var      = freshVar [] (types !! varIndex)
                                         subst0   = [(varIndex+1,Vr var)]
@@ -193,13 +182,6 @@ learnPattern cfg cnc gr smarts pat name pattern pos typs = do
     getOneIdent (P (Vr idx) (LIdent field)) = [(showIdent idx, showRawIdent field)]
     getOneIdent (S (T _ t) _) = concat (map getTerm t)
     getOneIdent _  = []
-
-
-    buildStr s []     f = return (Empty,s)
-    buildStr s [x]    f = f s x
-    buildStr s (x:xs) f = do (t1,s) <- f s x
-                             (t2,s) <- buildStr s xs f
-                             return (C t1 t2,s)
 
     selectVars subst0 ([],               inh) = ([], inh)
     selectVars subst0 (v_ty@(i,v,ty):vs, inh) =
@@ -477,17 +459,17 @@ split sep (c:cs)
                   []     -> [[c]]
                   (x:xs) -> (c:x):xs
 
-findStr gr cfg morpho vs t (Sort s) | s == cStr  = return (t,vs)
-findStr gr cfg morpho vs t (RecType fs) = do
+findStr gr cfg vs id morpho t (Sort s) | s == cStr  = return (vs,(id,t))
+findStr gr cfg vs id morpho t (RecType fs) = do
   (l,_,ty) <- anyOf fs
   morpho <- foldM (flip pop) morpho [v | t <- all_tags, label t==l, v <- ud_tag t]
-  findStr gr cfg morpho vs (P t l) ty
-findStr gr cfg morpho vs t (Table arg res) = do
+  findStr gr cfg vs id morpho (P t l) ty
+findStr gr cfg vs id morpho t (Table arg res) = do
   v <- findParam gr cfg morpho arg
   let i = length vs+1
       p = Meta i
-  findStr gr cfg morpho ((i,v,arg):vs) (S t p) res
-findStr gr cfg morpho vs t ty = empty
+  findStr gr cfg ((i,v,arg):vs) id morpho (S t p) res
+findStr gr cfg vs id morpho t ty = empty
 
 findParam gr cfg morpho (QC q) = do
   (q,ctxt) <- case Map.lookup q (smarts cfg) of
@@ -579,9 +561,9 @@ pop x0 (x:xs)
   | otherwise = do xs <- pop x0 xs
                    return (x:xs)
 
-
-
-with q (GenM g) =
-  GenM (\s k r -> if Set.member q s
-                    then Ok r
-                    else g (Set.insert q s) k r)
+mapAccumM :: Monad m => (s -> a -> m (s, b)) -> s -> [a] -> m (s, [b])
+mapAccumM f s []     = return (s,[])
+mapAccumM f s (x:xs) = do
+  (s,x)  <- f s x
+  (s,xs) <- mapAccumM f s xs
+  return (s,x:xs)
