@@ -185,7 +185,7 @@ learnAdv cfg cnc gr noSmarts trees = do
     n_ty <- lookupResDef gr (cnc,identS pos1)
     (fun, args, lincat) <- learnPattern cfg cnc gr noSmarts patts3 name2 pattern2 0 (np, n_ty)
     let argMap = Map.fromList args
-    let (fields2, addArgs2) = combineTrees cfg name2 "cn" "adv" modmap fun argMap ["adv", "cn"]
+    let (fields2, addArgs2) = combineTrees cfg name2 "cn" "adv" modmap fun argMap ["cn","adv"]
 
     return ([fields, fields2], addArgs2 ++ args)
 
