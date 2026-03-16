@@ -103,7 +103,7 @@ learnComplSlash cfg cnc gr noSmarts trees = do
         pattern = (v_p,np_p)
     let (_, patts) = unzip $ query trees pattern
     (fun, (_, vp_ty)) <- learnPattern cfg cnc gr noSmarts patts name pattern
-    gr <- modifyCat cfg gr [("VP",vp_ty)]
+    gr <- modifyCat cfg gr [("VPSlash",vp_ty),("VP",vp_ty)]
     let (fields, addArgs) = combineTrees cfg gr name (idx v_p) identW fun vp_ty [idx v_p,idx np_p]
     return (gr, fields, addArgs)
 
@@ -116,7 +116,7 @@ learnPredVP cfg cnc gr noSmarts trees = do
         pattern = (vp_p,np_p)
     let (_, patts) = unzip $ query trees pattern
     (fun, (_, cl_ty)) <- learnPattern cfg cnc gr noSmarts patts name pattern
-    let (fs, addArgs) = combineTrees cfg gr name (idx vp_p) identW fun vp_ty [idx np_p, idx vp_p]
+    let (fs, addArgs) = combineTrees cfg gr name (idx vp_p) identW fun cl_ty [idx np_p, idx vp_p]
     gr <- modifyCat cfg gr [("Cl", cl_ty)]
     return (gr, fs, addArgs)
 
