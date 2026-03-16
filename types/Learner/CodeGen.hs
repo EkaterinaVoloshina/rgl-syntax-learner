@@ -138,17 +138,23 @@ learnPattern cfg cnc gr smarts pat name pattern = do
       return ([], (defLinType,defLinType))
     else do
       let usedLabels = concatMap (getUsedLabels . fst) terms
-          a_ty' = filterFields (\(lbl,_,_) -> (ap,lbl) `elem` usedLabels) a_ty
-          n_ty' = filterFields (\(lbl,_,_) -> (cn,lbl) `elem` usedLabels) n_ty
+          a_ty' = filterFields usedLabels ap a_ty
+          n_ty' = filterFields usedLabels cn n_ty
 
       let terms' = [(getStrLabels t, t, freq) | (t,freq) <- terms, t /= Empty]
-
       return (terms', (a_ty', n_ty'))
   where
     -- | helper functions to collect information about used fields    
 
-    filterFields f (RecType ltys) = RecType (filter f ltys)
-    filterFields f ty             = ty
+    filterFields used vr (RecType ltys) =
+      RecType [(lbl,xs,filterFields used' vr ty)
+                     | (lbl,xs,ty) <- ltys
+                     , let used' = narrow used lbl
+                     , not (null used')]
+      where
+        narrow used lbl = [(vr,lbls) | (vr',lbl':lbls) <- used
+                                     , vr==vr', lbl==lbl']
+    filterFields used vr ty = ty
 
     selectVars subst0 ([],               inh) = ([], inh)
     selectVars subst0 (v_ty@(i,v,ty):vs, inh) =
@@ -358,24 +364,36 @@ unionPatts (patts1, p1) (patts2, p2) = filter (\p -> (getPosition p p2) `elem` p
 
 
 combineTrees cfg gr funName name wo [] ty argNames = (Nothing, [])
-combineTrees cfg gr funName name wo ts ty argNames = (Just (showIdent abs_mn, [getFun funName argNames (R fields)]), concat addArgs)
+combineTrees cfg gr funName name wo ts ty argNames = (Just (showIdent abs_mn, [getFun funName argNames t]), addArgs)
   where
     Ok (MN abs_mn,_) = lookupOrigInfo gr (moduleNameS "Lang",funName)
-    (fields, addArgs) = case ty of
-                          RecType ltys -> unzip [matchFields name wo lbl (Map.lookup lbl varTrees) | (lbl,_,_) <- ltys, isNothing (isLockLabel lbl)]
-    -- check that variation comes from word order variation
-    varTrees = Map.fromListWith (++) (map (\(f, t, freq) -> (snd (head (filter (\(x, y) -> x == name) f)), [(map fst f, (t,freq))])) ts)
 
-matchFields name wo field Nothing          = ((field, (Nothing, P (Vr name) field)),[])
-matchFields name wo field (Just [(_,def)]) = ((field, (Nothing, fst def)),[])
-matchFields name wo field (Just defs)
-  | wo == identW = let (order, defs') = unzip defs
-                   in ((field, (Nothing, head (map fst (sortOn (negate . snd) defs')))), [])
-  | otherwise    = getDefs (unzip defs)
+    (addArgs, t) = mkRecord [] [] ty
+    -- check that variation comes from word order variation
+    varTrees = Map.fromListWith (++) (map (\(f, t, freq) -> (fromJust (lookup name f), [(map fst f,t,freq)])) ts)
+
+    mkRecord lbls addArgs (RecType ltys) =
+      let (addArgs',lts) =
+               mapAccumL (\s (lbl,_,ty) ->
+                               let (s',t) = mkRecord (lbl:lbls) s ty
+                               in (s',(lbl,(Nothing, t))))
+                         addArgs
+                         (filter (\(lbl,_,_)->isNothing (isLockLabel lbl)) ltys)
+      in (addArgs',R lts)
+    mkRecord lbls addArgs ty =
+      matchFields name wo lbls addArgs (Map.lookup (reverse lbls) varTrees)
+
+matchFields name wo lbls addArgs Nothing            = (addArgs, foldl P (Vr name) lbls)
+matchFields name wo lbls addArgs (Just [(_,def,_)]) = (addArgs, def)
+matchFields name wo lbls addArgs (Just defs)
+  | wo == identW = let (_,def,_):_ = sortOn (\(_,_,rank) -> -rank) defs
+                   in (addArgs, def)
+  | otherwise    = getDefs (unzip3 defs)
   where
-    getDefs (order, defs')  | length (nub order) == 1 = ((field, (Nothing, head (map fst (sortOn snd defs')))), [])
-    getDefs (order1:order2:_, def1:def2:_)            = ((field, (Nothing, S (T TRaw [getPreOrPost order1 (fst def1), getPreOrPost order2 (fst def2)])
-                                                                             (P (Vr wo) cIsPre))), [(wo, [cIsPre])])
+    getDefs (order, defs', rs) | length (nub order) == 1 = (addArgs, fst (head (sortOn snd (zip defs' rs))))
+    getDefs (order1:order2:_, def1:def2:_, _)            = ((wo, [cIsPre]):addArgs,
+                                                            S (T TRaw [getPreOrPost order1 def1, getPreOrPost order2 def2])
+                                                              (P (Vr wo) cIsPre))
 
     getPreOrPost o def
       | o !! 0 == wo = (PP (cPrelude, cTrue)  [], def)
@@ -384,10 +402,18 @@ matchFields name wo field (Just defs)
     cPrelude = moduleNameS "Prelude"
     cIsPre = LIdent (rawIdentS "isPre")
 
-getUsedLabels (P (Vr idx) lbl) = [(idx, lbl)]
+getUsedLabels t@(P _ lbl) =
+  let (var,lbls) = unpack t in [(var, reverse lbls)]
+  where
+    unpack (Vr var)  = (var,[])
+    unpack (P t lbl) = let (var,lbls) = unpack t in (var,lbl:lbls)
 getUsedLabels t = collectOp getUsedLabels t
 
-getStrLabels (P (Vr idx) lbl) = [(idx, lbl)]
+getStrLabels t@(P _ lbl) =
+  let (var,lbls) = unpack t in [(var, reverse lbls)]
+  where
+    unpack (Vr var)  = (var,[])
+    unpack (P t lbl) = let (var,lbls) = unpack t in (var,lbl:lbls)
 getStrLabels (S t _) = getStrLabels t
 getStrLabels t = collectOp getStrLabels t
 

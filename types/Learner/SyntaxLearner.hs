@@ -119,7 +119,7 @@ learnPredVP cfg cnc gr noSmarts trees = do
     forM_ fun $ \(_,t,rank) ->
         print (show (pp t <+> pp rank))
     let (fs, addArgs) = combineTrees cfg gr name (idx vp_p) identW fun vp_ty [idx np_p, idx vp_p]
-    gr <- modifyCat cfg gr [("VPSlash", vp_ty),("VP", vp_ty)]
+    gr <- modifyCat cfg gr [("VPSlash", vp_ty)]
     return (gr, fs, addArgs)
 
 learnAdAP cfg cnc gr snoSmarts trees = do 
@@ -198,10 +198,7 @@ learnDetCN cfg cnc gr noSmarts trees = do
         patch morph1 morph2 = filter (\x -> fst x /= "Definite") morph2 ++ filter (\x -> fst x == "Definite") morph1
     (fun, (npType,_)) <- learnPattern cfg cnc gr noSmarts patts name pattern
 
-    let detCN = getFun name [idx det_p, idx cn_p] (R fields)
-        (fields, _) = case cn_ty of
-                        RecType ltys -> unzip [matchFields (idx cn_p) identW lbl (Map.lookup lbl varTrees) | (lbl,_,_) <- ltys, isNothing (isLockLabel lbl)]
-        varTrees = Map.fromListWith (++) (map (\(f, t, freq) -> (snd (head (filter (\(x, y) -> x == idx cn_p) f)), [(map fst f, (t,freq))])) fun)
+    let (Just (_,[detCN]),_) = combineTrees cfg gr name (idx cn_p) identW fun cn_ty [idx det_p, idx cn_p]
 
     let lincats = [("NP", npType), ("Quant", quantType), ("Num", numType), ("Det", detType)]
     gr <- modifyCat cfg gr lincats
