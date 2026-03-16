@@ -70,8 +70,8 @@ learnPattern cfg cnc gr smarts pat name pattern = do
         cctxt = CodeContext [(Vr ap,a_ty),(Vr cn,n_ty)] -- argument types
                             patts                       -- matching patterns
                             smarts
-    putStrLn ("Patterns: ")
-    mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
+    -- putStrLn ("Patterns: ")
+    -- mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
 
     
     let res = fmap (Map.fromListWith (++)) $ runGenM $ do
@@ -93,8 +93,7 @@ learnPattern cfg cnc gr smarts pat name pattern = do
     terms <- forM (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
      -- examples
       when (cfgVerbose cfg) $ do
-        putStrLn "Pattern: "
-       --print dataset
+        putStrLn "Pattern:"
         print (ppTerm Unqualified 0 t0)
 
         forM_ dataset $ \(vs,inh) ->

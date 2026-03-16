@@ -110,16 +110,14 @@ learnComplSlash cfg cnc gr noSmarts trees = do
 learnPredVP cfg cnc gr noSmarts trees = do 
     let name = identS "PredVP"
     np_ty <- lookupResDef gr (cnc,identS "NP")
-    v_ty  <- lookupResDef gr (cnc,identS "VP")
-    let vp_p = QueryPattern {pos=Just ["VERB"], rel=Nothing, morpho=Nothing, idx=identS "vp", var_type=v_ty}
+    vp_ty <- lookupResDef gr (cnc,identS "VP")
+    let vp_p = QueryPattern {pos=Just ["VERB"], rel=Nothing, morpho=Nothing, idx=identS "vp", var_type=vp_ty}
         np_p = QueryPattern {pos=Just ["NOUN"], rel=Just "subj", morpho=Nothing, idx=identS "np", var_type=np_ty}
         pattern = (vp_p,np_p)
     let (_, patts) = unzip $ query trees pattern
-    (fun, (_, vp_ty)) <- learnPattern cfg cnc gr noSmarts patts name pattern
-    forM_ fun $ \(_,t,rank) ->
-        print (show (pp t <+> pp rank))
+    (fun, (_, cl_ty)) <- learnPattern cfg cnc gr noSmarts patts name pattern
     let (fs, addArgs) = combineTrees cfg gr name (idx vp_p) identW fun vp_ty [idx np_p, idx vp_p]
-    gr <- modifyCat cfg gr [("VPSlash", vp_ty)]
+    gr <- modifyCat cfg gr [("Cl", cl_ty)]
     return (gr, fs, addArgs)
 
 learnAdAP cfg cnc gr snoSmarts trees = do 
