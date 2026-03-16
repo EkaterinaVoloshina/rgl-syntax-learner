@@ -219,6 +219,8 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "adverbial"       [("Form","Adverbial")]       "adverbial"     "Adverbial"       ""
   ,tag "inclusive"       [("Clusivity","Inclusive")]  "inclusive"     "Inclusive"       "Clusivity"
   ,tag "exclusive"       [("Clusivity","Exclusive")]  "exclusive"     "Exclusive"       "Clusivity"
+  ,tag ""                notInCorpus                  "c2"            ""                ""
+  ,tag ""                notInCorpus                  "c3"            ""                ""
   ]
   where
     tag wikt_tag umorph_tag label ident typ = Tag wikt_tag umorph_tag (ident2label (identS label)) (identS ident) (identS typ)

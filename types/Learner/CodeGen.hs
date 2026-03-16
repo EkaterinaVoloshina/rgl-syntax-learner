@@ -2,10 +2,10 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                identS,Ident,
                rawIdentS,RawIdent, unionPatts,
                noSmarts,
-               learnPattern, query, getPosFun, getIds,
+               learnPattern, query,
                getFun, getModule, matchFields,
-               combineTrees, mapPOS, getNewType, 
-               getOneField, defArt, indefArt, detQuant, createArt, createNum,
+               combineTrees,
+               getOneField, detQuant, createArt, createNum,
                QueryPattern(..), Val(..)) where
 
 import Debug.Trace(trace, traceShowId, traceShow)
@@ -20,7 +20,7 @@ import GF.Grammar.Printer
 import GF.Grammar.Predef
 import GF.Grammar.Grammar hiding (Rule(..))
 import GF.Grammar.Lockfield
-import GF.Grammar.Macros (termForm,composSafeOp,typeFormCnc)
+import GF.Grammar.Macros (termForm,collectOp,composSafeOp,typeFormCnc,defLinType,appForm)
 import GF.Compile
 import System.Exit
 import System.Process
@@ -47,12 +47,9 @@ data QueryPattern = QueryPattern {
     pos :: Maybe [String],
     rel :: Maybe String, 
     morpho :: Maybe [Feat],
-    idx :: String
+    idx :: Ident,
+    var_type :: Type
 } deriving (Show)
-
-mapPOS fun = (mapOne (fst fun), mapOne (snd fun))
-  where mapOne f = showIdent (posCat (fromJust (lookupUPOS (head (fromJust (pos f))))))
-
 
 --query :: Tree Node -> ((String, Maybe String), (String, Maybe String)) -> IO [(Node, Node)]
 query trees fun = do 
@@ -60,23 +57,12 @@ query trees fun = do
   res <- filter (\(t, e) -> matchEdges fun e) (edges t)
   return res
     
-learnPattern cfg cnc gr smarts pat name pattern pos typs = do
-    
-    putStrLn ("== " ++ name ++ " ==" )
+learnPattern cfg cnc gr smarts pat name pattern = do
 
-    let (a_ty, n_ty) = typs
-    {-let (pos1, pos2) = mapPOS pattern
-    a_ty <- lookupResDef gr (cnc,identS pos1)
-    n_ty <- lookupResDef gr (cnc,identS pos2)-}
-    
-    let RecType nTs = n_ty
-    let RecType aTs = a_ty
-    let nountypes = []
+    putStrLn ("== " ++ showIdent name ++ " ==" )
 
-
-    
-    let ap = identS (idx (snd pattern))
-        cn = identS (idx (fst pattern))
+    let QueryPattern {idx=ap, var_type=a_ty} = snd pattern
+        QueryPattern {idx=cn, var_type=n_ty} = fst pattern
         patts = do  -- query edges matching AdjCN
           (n1, n2) <- pat
           return [(n1,Vr cn,n_ty),(n2,Vr ap,a_ty)]
@@ -84,8 +70,8 @@ learnPattern cfg cnc gr smarts pat name pattern pos typs = do
         cctxt = CodeContext [(Vr ap,a_ty),(Vr cn,n_ty)] -- argument types
                             patts                       -- matching patterns
                             smarts
-    --putStrLn ("Patterns: ")
-    --mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
+    putStrLn ("Patterns: ")
+    mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
 
     
     let res = fmap (Map.fromListWith (++)) $ runGenM $ do
@@ -104,7 +90,7 @@ learnPattern cfg cnc gr smarts pat name pattern pos typs = do
       Ok m    -> return m
       Bad msg -> fail msg
 
-    fieldsM <- forM (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
+    terms <- forM (Map.toList m) $ \((t0,dim_dataset,dim_inh),dataset) -> do
      -- examples
       when (cfgVerbose cfg) $ do
         putStrLn "Pattern: "
@@ -123,7 +109,7 @@ learnPattern cfg cnc gr smarts pat name pattern pos typs = do
                   -- print (catMaybes dt)
                   print (pp t)
                   putStrLn ""
-                return ((t, freq), getIdent (unpackT t))                
+                return (t, freq)
 
         else let types = map (\(_,_,ty)->ty) (fst (head dataset))
                  res   = (sortOn (\(_,acc,_,_,_)-> -acc))
@@ -141,47 +127,28 @@ learnPattern cfg cnc gr smarts pat name pattern pos typs = do
                             putStrLn ("Found term with accuracy "++show accuracy++":")
                             print (pp t)     
                             putStrLn ""
-                          return ((t, freq), getIdent (unpackT t))
+                          return (t, freq)
                           
                     | otherwise -> do
                           cross_breed dim_dataset dataset t0 subst0 rest
                   [] -> do 
-
-                    --print res
-                    return ((Empty,0), [])
-    let (trees, fsM) = unzip fieldsM 
-    if (null trees) then do
+                    return (Empty,0)
+    if null terms then do
       putStrLn "No examples of such construction"
-      return ([], [], Empty)
-    else do 
-      let keepN = filterFields cn (getFields nTs) (concat fsM)
-      let keepA = filterFields ap (getFields aTs) (concat fsM)
-      let lincat = if pos == 0 then RecType (filter (\(LIdent idx, _, _) -> showRawIdent idx `elem` keepN) nTs) else RecType (filter (\(LIdent idx, _, _) -> showRawIdent idx `elem` keepA) aTs)
-      
-      let trees' = filter (\(t,_) -> t /= Empty) trees
-      let mappedTrees = map (\t -> (getOneIdent (unpackT (fst t)), t)) trees'
+      return ([], (defLinType,defLinType))
+    else do
+      let usedLabels = concatMap (getUsedLabels . fst) terms
+          a_ty' = filterFields (\(lbl,_,_) -> (ap,lbl) `elem` usedLabels) a_ty
+          n_ty' = filterFields (\(lbl,_,_) -> (cn,lbl) `elem` usedLabels) n_ty
 
-      return (mappedTrees, [(showIdent cn, keepN), (showIdent ap, keepA)], lincat)
-    
-       
+      let terms' = [(getStrLabels t, t, freq) | (t,freq) <- terms, t /= Empty]
 
+      return (terms', (a_ty', n_ty'))
   where
     -- | helper functions to collect information about used fields    
 
-    filterFields cl t inp = filter (\x -> (showIdent cl, x) `elem` inp) t
-
-    getFields ts = map (\(LIdent idx, _, _) -> showRawIdent idx) ts
-
-    getOneIdent (C s1 s2) = getOneIdent s1 ++ getOneIdent s2
-    getOneIdent (S s1@(S _ _) s2@(S _ _)) = getOneIdent s1
-    getOneIdent (S s@(S _ _) _) = getOneIdent s
-    getOneIdent (S s@(P _ _) _) = getOneIdent s
-    getOneIdent (S _ s@(S _ _)) = getOneIdent s
-    getOneIdent (S _ s@(P _ _)) = getOneIdent s
-    getOneIdent (P p@(P _ _) _) = getOneIdent p
-    getOneIdent (P (Vr idx) (LIdent field)) = [(showIdent idx, showRawIdent field)]
-    getOneIdent (S (T _ t) _) = concat (map getTerm t)
-    getOneIdent _  = []
+    filterFields f (RecType ltys) = RecType (filter f ltys)
+    filterFields f ty             = ty
 
     selectVars subst0 ([],               inh) = ([], inh)
     selectVars subst0 (v_ty@(i,v,ty):vs, inh) =
@@ -240,9 +207,8 @@ learnPattern cfg cnc gr smarts pat name pattern pos typs = do
                       putStrLn ""
                       putStrLn ("Found term with accuracy "++show accuracy++":")
                       print (pp t)
-                      --print (dt)
                       putStrLn ""
-                    return ((t, freq), getIdent (unpackT t))
+                    return (t, freq)
             else cross_breed dim_dataset dataset t0 subst0'' rest
 
 
@@ -303,24 +269,12 @@ matchEdges (p1, p2) (n1@(_,_,pos1,m1,rel1),n2@(_,_,pos2,m2,rel2)) = checkPos (po
         checkFeat (feat, Match val) m2 = (feat, val) `elem` m2
         checkFeat (feat, Not val) m2 = (feat, val) `notElem` m2
         checkPos pos p = isNothing pos || p `elem` (fromJust pos)
-   
-   
--- | functions to create a correct representation of syntax
---getPosFun :: String -> String -> Map.Map String [String] -> Term
-getPosFun lang modmap name pos n ffs = getF (Map.lookup n ffs)
-  
-  where 
-    getF Nothing = Nothing 
-    getF (Just res) = Just (fromJust (Map.lookup pos modmap), [getFun name [pos] (getRecord pos res)])
-    getRecord pos res = R (map (\x -> mapWithType x pos) res)
-    mapWithType x pos = (LIdent (rawIdentS x), (Nothing, P (Vr (identS pos)) (LIdent (rawIdentS x))))
 
-
-getFun :: String -> [String] -> Term -> (Ident, Info)
-getFun name args f = (identS name, CncFun (Nothing) (Just (L NoLoc (getArgs args f))) Nothing Nothing)
+getFun :: Ident -> [Ident] -> Term -> (Ident, Info)
+getFun name args f = (name, CncFun (Nothing) (Just (L NoLoc (getArgs args f))) Nothing Nothing)
   where 
     getArgs [] f = f 
-    getArgs (arg:args) f = Abs Explicit (identS arg) (getArgs args f) 
+    getArgs (arg:args) f = Abs Explicit arg (getArgs args f) 
 
 getModule cfg cnc_mn abs_mn jments =
   ppModule Unqualified (cnc_mn,mo)
@@ -338,43 +292,61 @@ getModule cfg cnc_mn abs_mn jments =
         , mtype = MTConcrete abs_mn
         }
 
--- creates a placeholder 
-artFields fields def | "Species" `elem` fields = [(theLinLabel, ((Nothing, Empty), Sort cStr)), (LIdent (rawIdentS "sp"), ((Nothing, getType def), (Sort (identS ("Species")))))] 
-  where 
-    w = words def 
+createPlaceholder cfg gr lbl con_typ fun1 con1 fun2 con2 =
+  (mkFun fun1 con1, mkFun fun2 con2, typ)
+  where
+    cRes = cfgLangModuleName cfg "Res"
 
-    getType def | length w == 2 = App (Cn (identS (w !! 0))) (Cn (identS (w !! 1)))
-    getType def | otherwise = Cn (identS def)
+    mkFun fun con =
+      getFun fun [] (R ( (theLinLabel, (Nothing, Empty))
+                       : if null values
+                           then []
+                           else take 1 [(lbl, (Nothing, value))
+                                             | value <- values
+                                             , let (f,xs) = appForm value
+                                             , f == QC (cRes,con)]))
 
-artFields fields def | otherwise               = [(theLinLabel, ((Nothing, Empty), Sort cStr))]
+    q_con_typ = (cRes, con_typ)
+    typ = RecType ( (theLinLabel, [], Sort cStr)
+                  : if null values
+                      then []
+                      else [(lbl, [], QC q_con_typ)])
 
-createPlaceholder name fields = (getFun name [] (R fs), tp)
-    where (fs, tp) = unzip $ map (\(l, (val, ty)) -> ((l, val), (l, [], ty))) fields
+    values =
+      case lookupOrigInfo gr q_con_typ of
+        Ok (_,ResParam _ (Just (ts,_))) -> ts
+        _                               -> []
 
-createNum name value = createPlaceholder name fields
-    where fields = [(theLinLabel, ((Nothing, Empty), Sort cStr)), (LIdent (rawIdentS "n"), ((Nothing, Cn (identS value)), Sort (identS "Number")))]
+createNum cfg gr =
+  createPlaceholder cfg gr
+                    (LIdent (rawIdentS "n")) (identS "Number")
+                    (identS "NumSg") (identS "Sg")
+                    (identS "NumPl") (identS "Pl")
 
-createArt name value fields sp | value `elem` sp = createPlaceholder name (artFields fields value)
-createArt name value fields sp | otherwise = createPlaceholder name (artFields fields vs)
-  where vs = head (filter (\x -> isPrefixOf value x) sp)
+createArt cfg gr =
+  createPlaceholder cfg gr
+                    (LIdent (rawIdentS "sp")) (identS "Species")
+                    (identS "IndefArt") (identS "Indef")
+                    (identS "DefArt")   (identS "Def")
 
-indefArt fields sp = createArt "IndefArt" "Indef" fields sp
-defArt fields sp = createArt "DefArt" "Def" fields sp
--- concat in s; copy def
+detQuant (RecType num) (RecType art) =
+  (getFun name [det_id, num_id] (R (map (\x -> concatFields x (det_id, fs2) (num_id, fs1)) (nub $ fs1 ++ fs2))), RecType typ)
+  where
+    name = identS "DetQuant"
+    det_id  = identS "det"
+    num_id  = identS "num"
 
-detQuant fields num art = (getFun "DetQuant" ["det", "num"] (R (map (\x -> concatFields x ("det", fs2) ("num", fs1)) (nub $ fs1 ++ fs2))), typ)
-  where 
-    fs typ = map (\(LIdent l, _, _) -> showRawIdent l) typ
-    fs1 = fs num 
+    fs typ = map (\(f, _, _) -> f) typ
+    fs1 = fs num
     fs2 = fs art
 
     typ = nub $ num ++ art
-    
-    concatFields f (id1, fs1) (id2, fs2) | f `elem` fs1 && f `elem` fs2 = (LIdent (rawIdentS f), (Nothing, C (P (Vr (identS id1)) (LIdent (rawIdentS f))) (P (Vr (identS id2)) (LIdent (rawIdentS f)))))
+
+    concatFields f (id1, fs1) (id2, fs2) | f `elem` fs1 && f `elem` fs2 = (f, (Nothing, C (P (Vr id1) f) (P (Vr id2) f)))
     concatFields f (id1, fs1) (id2, fs2) | f `elem` fs1 = getOneField f id1
     concatFields f (id1, fs1) (id2, fs2) | f `elem` fs2 = getOneField f id2
 
-getOneField f arg = (LIdent (rawIdentS f), (Nothing, P (Vr (identS arg)) (LIdent (rawIdentS f))))
+getOneField lbl arg = (lbl, (Nothing, P (Vr arg) lbl))
 
 -- helper functions
 unionPatts (patts1, p1) (patts2, p2) = filter (\p -> (getPosition p p2) `elem` patts1') patts2 
@@ -385,56 +357,39 @@ unionPatts (patts1, p1) (patts2, p2) = filter (\p -> (getPosition p p2) `elem` p
         patts1' = getPosition (unzip patts1) p1
 
 
-combineTrees cfg funName name wo mod [] argMap argNames = (Nothing, [])
-combineTrees cfg funName name wo mod fun argMap argNames = (Just (main, [getFun funName argNames (R fields)]), concat addArgs)
-    where 
-        modname = cfgLangModuleFileName cfg (fromJust (Map.lookup wo mod))
-        main = fromJust (Map.lookup name mod)
-        (fields, addArgs) = unzip (map (\x -> matchFields name wo modname x (Map.lookup x varTrees)) (fromJust (Map.lookup name argMap)))
-        -- check that variation comes from word order variation
-        varTrees = Map.fromListWith (++) (map (\(f, t) -> (snd (head (filter (\(x, y) -> x == name) f)), [(map fst f, t)])) fun)
-    
+combineTrees cfg gr funName name wo [] ty argNames = (Nothing, [])
+combineTrees cfg gr funName name wo ts ty argNames = (Just (showIdent abs_mn, [getFun funName argNames (R fields)]), concat addArgs)
+  where
+    Ok (MN abs_mn,_) = lookupOrigInfo gr (moduleNameS "Lang",funName)
+    (fields, addArgs) = case ty of
+                          RecType ltys -> unzip [matchFields name wo lbl (Map.lookup lbl varTrees) | (lbl,_,_) <- ltys, isNothing (isLockLabel lbl)]
+    -- check that variation comes from word order variation
+    varTrees = Map.fromListWith (++) (map (\(f, t, freq) -> (snd (head (filter (\(x, y) -> x == name) f)), [(map fst f, (t,freq))])) ts)
 
---matchFields :: String -> String -> String -> String -> Maybe Term -> ((IdentTerm, [])
-matchFields name wo mod field Nothing       = ((LIdent (rawIdentS field), (Nothing, P (Vr (identS name)) (LIdent (rawIdentS field)))),[])
-matchFields name wo mod field (Just [(_,def)])   = ((LIdent (rawIdentS field), (Nothing, fst def)),[])
-matchFields name "" mod field (Just defs) = ((LIdent (rawIdentS field), (Nothing, head (map fst (sortOn snd defs')))), [])
-  where (order, defs') = unzip defs
-matchFields name wo mod field (Just defs) = getDefs name wo mod field (unzip defs)
-  where 
-        getDefs name wo mod field (order, defs')            | length (nub order) == 1 = ((LIdent (rawIdentS field), (Nothing, head (map fst (sortOn snd defs')))), [])
-        getDefs name wo mod field (order1:order2:restO, (def1:def2:rest)) | otherwise               =  ((LIdent (rawIdentS field), (Nothing, S (T TRaw [getPreOrPost wo  order1 (fst def1), getPreOrPost wo order2 (fst def2)]) (P (Vr (identS wo)) (LIdent (rawIdentS "isPre"))))), [(wo, ["isPre"])])
+matchFields name wo field Nothing          = ((field, (Nothing, P (Vr name) field)),[])
+matchFields name wo field (Just [(_,def)]) = ((field, (Nothing, fst def)),[])
+matchFields name wo field (Just defs)
+  | wo == identW = let (order, defs') = unzip defs
+                   in ((field, (Nothing, head (map fst (sortOn (negate . snd) defs')))), [])
+  | otherwise    = getDefs (unzip defs)
+  where
+    getDefs (order, defs')  | length (nub order) == 1 = ((field, (Nothing, head (map fst (sortOn snd defs')))), [])
+    getDefs (order1:order2:_, def1:def2:_)            = ((field, (Nothing, S (T TRaw [getPreOrPost order1 (fst def1), getPreOrPost order2 (fst def2)])
+                                                                             (P (Vr wo) cIsPre))), [(wo, [cIsPre])])
 
-        getPreOrPost wo o def | o !! 0 == wo = (PP (MN (identS "Prelude"), identS "True") [] , def)
-        getPreOrPost wo o def | otherwise    = (PP (MN (identS "Prelude"), identS "False") [] , def)
+    getPreOrPost o def
+      | o !! 0 == wo = (PP (cPrelude, cTrue)  [], def)
+      | otherwise    = (PP (cPrelude, cFalse) [], def)
 
-getNewType fields [] base = []       
-getNewType fields ((def, tree):funs) base | el `notElem` fields = ((el, [(map fst def, tree)]):(getNewType fields funs base))
-  where el = snd (head (filter (\(x, a) -> x == base) def))
-getNewType fields ((def, tree):funs) base | otherwise = (("s", [(map fst def, tree)]):(getNewType fields funs base)) 
+    cPrelude = moduleNameS "Prelude"
+    cIsPre = LIdent (rawIdentS "isPre")
 
---getNewType ((LIdent idx, typ):fields) funs base = base
+getUsedLabels (P (Vr idx) lbl) = [(idx, lbl)]
+getUsedLabels t = collectOp getUsedLabels t
 
-getIds typ = map (\(LIdent idx,_,_) -> showRawIdent idx) typ
-getIdent (C s1 s2) = getIdent s1 ++ getIdent s2
-getIdent (S s1@(S _ _) s2@(S _ _)) = getIdent s1 ++ getIdent s2
-getIdent (S s1@(S _ _) s2@(P _ _)) = getIdent s1 ++ getIdent s2
-getIdent (S s1@(P _ _) s2@(S _ _)) = getIdent s1 ++ getIdent s2
-getIdent (S s@(S _ _) _) = getIdent s
-getIdent (S _ s@(S _ _)) = getIdent s
-getIdent (S _ s@(P _ _)) = getIdent s
-getIdent (S s@(P _ _) _) = getIdent s
-getIdent (P (Vr idx) (LIdent field)) = [(showIdent idx, showRawIdent field)]
-getIdent (S (T _ t) _) = concat (map getTerm t)
-getIdent _  = []
-
-getTerm (PP _ _, s@(S _ _)) = getIdent s
-getTerm _ = []
-
-unpackT (T _ ((_, c@(C _ _)):ts)) = c
-unpackT (T _ ((_, t@(T _ _)):ts)) = unpackT t
-unpackT c@(C _ _) = c
-unpackT t = t
+getStrLabels (P (Vr idx) lbl) = [(idx, lbl)]
+getStrLabels (S t _) = getStrLabels t
+getStrLabels t = collectOp getStrLabels t
 
 nodes t = collect t []
   where
