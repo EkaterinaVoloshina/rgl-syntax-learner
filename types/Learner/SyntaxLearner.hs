@@ -89,9 +89,9 @@ learnAdjCN cfg cnc gr noSmarts trees = do
         a_p = QueryPattern {pos=Just ["ADJ"], rel=Just "mod", morpho=Nothing, idx=identS "ap", var_type=a_ty}
         pattern = (n_p,a_p)
     let (_, patts) = unzip $ query trees pattern
-    (fun, (ap_ty,cn_ty)) <- learnPattern cfg cnc gr noSmarts patts name pattern
+    fun <- learnPattern cfg cnc gr noSmarts patts name pattern
+    let (ap_ty, cn_ty, fields, addArgs) = combineTrees cfg gr name fun a_p n_p [idx a_p, idx n_p]
     gr <- modifyCat cfg gr [("AP",ap_ty),("CN",cn_ty)]
-    let (fields, addArgs) = combineTrees cfg gr name (idx n_p) (idx a_p) fun cn_ty [idx a_p, idx n_p]
     return (gr, fields, addArgs)
 
 learnComplSlash cfg cnc gr noSmarts trees = do
@@ -102,9 +102,9 @@ learnComplSlash cfg cnc gr noSmarts trees = do
         np_p = QueryPattern {pos=Just ["NOUN"], rel = Just "comp:obj", morpho=Nothing, idx=identS "np", var_type=np_ty}
         pattern = (v_p,np_p)
     let (_, patts) = unzip $ query trees pattern
-    (fun, (_, vp_ty)) <- learnPattern cfg cnc gr noSmarts patts name pattern
-    gr <- modifyCat cfg gr [("VPSlash",vp_ty),("VP",vp_ty)]
-    let (fields, addArgs) = combineTrees cfg gr name (idx v_p) identW fun vp_ty [idx v_p,idx np_p]
+    fun <- learnPattern cfg cnc gr noSmarts patts name pattern
+    let (_, vp_ty, fields, addArgs) = combineTrees cfg gr name fun np_p{idx=identW} v_p [idx v_p,idx np_p]
+    gr <- modifyCat cfg gr [("VPSlash",v_ty),("VP",vp_ty)]
     return (gr, fields, addArgs)
 
 learnPredVP cfg cnc gr noSmarts trees = do 
@@ -115,8 +115,8 @@ learnPredVP cfg cnc gr noSmarts trees = do
         np_p = QueryPattern {pos=Just ["NOUN"], rel=Just "subj", morpho=Nothing, idx=identS "np", var_type=np_ty}
         pattern = (vp_p,np_p)
     let (_, patts) = unzip $ query trees pattern
-    (fun, (_, cl_ty)) <- learnPattern cfg cnc gr noSmarts patts name pattern
-    let (fs, addArgs) = combineTrees cfg gr name (idx vp_p) identW fun cl_ty [idx np_p, idx vp_p]
+    fun <- learnPattern cfg cnc gr noSmarts patts name pattern
+    let (_, cl_ty, fs, addArgs) = combineTrees cfg gr name fun np_p{idx=identW} vp_p [idx np_p, idx vp_p]
     gr <- modifyCat cfg gr [("Cl", cl_ty)]
     return (gr, fs, addArgs)
 
@@ -128,8 +128,8 @@ learnAdAP cfg cnc gr snoSmarts trees = do
         ada_p = QueryPattern {pos=Just ["ADV"], rel=Just "mod", morpho=Nothing, idx=identS "ada", var_type=adv_ty}
         pattern = (ap_p,ada_p)
     let (_, patts) = unzip $ query trees pattern
-    (fun, (adj_ty, adv_ty)) <- learnPattern cfg cnc gr noSmarts patts name pattern
-    let (fields, addArgs) = combineTrees cfg gr name (idx ap_p) (idx ada_p) fun adj_ty [idx ada_p, idx ap_p]
+    fun <- learnPattern cfg cnc gr noSmarts patts name pattern
+    let (_, _, fields, addArgs) = combineTrees cfg gr name fun ada_p ap_p [idx ada_p, idx ap_p]
     return (fields, addArgs)
 
 --learnAdvAP lang cnc gr mapping noSmarts trees = do 
@@ -147,8 +147,8 @@ learnAdv cfg cnc gr noSmarts trees = do
         np_p   = QueryPattern {pos= Just ["NOUN"], rel=Just "comp:obj", morpho=Nothing, idx=identS "np", var_type=np_ty}
         pattern = (prep_p, np_p)
     let (trees', patts1) = unzip $ query trees pattern
-    (fun, _) <- learnPattern cfg cnc gr noSmarts patts1 name1 pattern
-    let (fields1, addArgs) = combineTrees cfg gr name1 (idx np_p) (idx prep_p) fun defLinType [idx prep_p, idx np_p]
+    fun <- learnPattern cfg cnc gr noSmarts patts1 name1 pattern
+    let (_, _, fields1, addArgs) = combineTrees cfg gr name1 fun prep_p np_p{var_type=defLinType} [idx prep_p, idx np_p]
 
     -- find AdvCN structures
     let name2 = identS "AdvCN"
@@ -159,8 +159,8 @@ learnAdv cfg cnc gr noSmarts trees = do
         pattern2 = (cn_p, adv_p)
     let (_, patts2) = unzip $ query trees' pattern2
     let patts3 = unionPatts (patts1, 0) (patts2, 1)
-    (fun, _) <- learnPattern cfg cnc gr noSmarts patts3 name2 pattern2
-    let (fields2, addArgs2) = combineTrees cfg gr name2 (idx cn_p) (idx adv_p) fun cn_ty [idx cn_p,idx adv_p]
+    fun <- learnPattern cfg cnc gr noSmarts patts3 name2 pattern2
+    let (_, _, fields2, addArgs2) = combineTrees cfg gr name2 fun cn_p adv_p [idx cn_p,idx adv_p]
 
     return (fields1, fields2, addArgs2)
 
@@ -183,22 +183,22 @@ learnDetCN cfg cnc gr noSmarts trees = do
         feats = filter (\x -> x `elem` allFeats) (nub $ concatMap (\(x, y) -> map fst y) artPatt)
 
     let (numSg, numPl, numType) = createNum cfg gr
-        (indef, def, quantType) = createArt cfg gr
-        (dQuant, detType) = detQuant numType quantType
+        (indef, def, quant_ty) = createArt cfg gr
+        (dQuant, det_ty) = detQuant numType quant_ty
 
     let name = identS "DetCN"
     cn_ty <- lookupResDef gr (cnc,identS "CN")
     let cn_p  = QueryPattern {pos= Just ["NOUN"], rel=Nothing, morpho=Nothing, idx=identS "cn", var_type=cn_ty}
-        det_p = QueryPattern {pos= Just ["DET"], rel=Just "det", morpho=Nothing, idx=identS "det", var_type=detType}
+        det_p = QueryPattern {pos= Just ["DET"], rel=Just "det", morpho=Nothing, idx=identS "det", var_type=det_ty}
         pattern = (cn_p, det_p)
     let (trees', patts0) = unzip $ query trees pattern
         patts = [(n_patt,(id2,lemma2,pos2,patch morph1 morph2,rel2)) | (n_patt@(id1,lemma1,pos1,morph1,rel1),(id2,lemma2,pos2,morph2,rel2)) <- patts0]
         patch morph1 morph2 = filter (\x -> fst x /= "Definite") morph2 ++ filter (\x -> fst x == "Definite") morph1
-    (fun, (npType,_)) <- learnPattern cfg cnc gr noSmarts patts name pattern
+    fun <- learnPattern cfg cnc gr noSmarts patts name pattern
 
-    let (Just (_,[detCN]),_) = combineTrees cfg gr name (idx cn_p) identW fun cn_ty [idx det_p, idx cn_p]
+    let (_,np_ty,Just (_,[detCN]),_) = combineTrees cfg gr name fun det_p{idx=identW} cn_p [idx det_p, idx cn_p]
 
-    let lincats = [("NP", npType), ("Quant", quantType), ("Num", numType), ("Det", detType)]
+    let lincats = [("NP", np_ty), ("Quant", quant_ty), ("Num", numType), ("Det", det_ty)]
     gr <- modifyCat cfg gr lincats
 
     return $ (gr, Just ("Noun", [detCN, dQuant, def, indef, numSg, numPl]), [])

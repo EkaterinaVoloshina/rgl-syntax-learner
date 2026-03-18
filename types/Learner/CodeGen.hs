@@ -3,7 +3,7 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                rawIdentS,RawIdent, unionPatts,
                noSmarts,
                learnPattern, query,
-               getFun, getModule, matchFields,
+               getFun, getModule,
                combineTrees,
                getOneField, detQuant, createArt, createNum,
                QueryPattern(..), Val(..)) where
@@ -100,60 +100,43 @@ learnPattern cfg cnc gr smarts pat name pattern = do
           print (hsep (map (\(_,t,_) -> ppTerm Unqualified 10 t) vs) <+> pp '|' <+>
                                         hsep (punctuate ";" (map (\(t1,t2,ty) -> pp t1 <> pp '=' <> pp t2 <+> pp ':' <+> pp ty) inh)))
 
-      let (freq, accuracy,_,t, dt) = instantiate dim_dataset dataset t0 []
+      let types = map (\(_,_,ty)->ty) (fst (head dataset))
+          (freq, accuracy,_,t, dt) = instantiate types dim_dataset dataset t0 []
       if dim_inh > 0 && accuracy > cfgSyntaxStopping cfg
         then do when (cfgVerbose cfg) $ do
                   putStrLn ""
                   putStrLn ("Found term with accuracy "++show accuracy++":")
-                  -- print (catMaybes dt)
-                  print (pp t)
+                  print (pp (raw t))
                   putStrLn ""
                 return (t, freq)
 
-        else let types = map (\(_,_,ty)->ty) (fst (head dataset))
-                 res   = (sortOn (\(_,acc,_,_,_)-> -acc))
+        else let res   = (sortOn (\(_,acc,_,_,_)-> -acc))
                             (map (\varIndex ->
                                     let var      = freshVar [] (types !! varIndex)
                                         subst0   = [(varIndex+1,Vr var)]
                                         dataset' = map (selectVars subst0) dataset
-                                    in instantiate dim_dataset dataset' t0 subst0)
-                                [0..dim_dataset-1])
+                                    in instantiate types dim_dataset dataset' t0 subst0)
+                                 [0..dim_dataset-1])
             in case res of
                   ((freq,accuracy,subst0,t,dt):rest)
                     | null rest || accuracy > cfgSyntaxStopping cfg -> do
                           when (cfgVerbose cfg) $ do
                             putStrLn ""
                             putStrLn ("Found term with accuracy "++show accuracy++":")
-                            print (pp t)     
+                            print (pp (raw t))
                             putStrLn ""
                           return (t, freq)
                           
                     | otherwise -> do
-                          cross_breed dim_dataset dataset t0 subst0 rest
+                          cross_breed types dim_dataset dataset t0 subst0 rest
                   [] -> do 
                     return (Empty,0)
-    if null terms then do
-      putStrLn "No examples of such construction"
-      return ([], (defLinType,defLinType))
-    else do
-      let usedLabels = concatMap (getUsedLabels . fst) terms
-          a_ty' = filterFields usedLabels ap a_ty
-          n_ty' = filterFields usedLabels cn n_ty
 
-      let terms' = [(getStrLabels t, t, freq) | (t,freq) <- terms, t /= Empty]
-      return (terms', (a_ty', n_ty'))
+    return (filter (\(t,_) -> t /= Empty) terms)
   where
-    -- | helper functions to collect information about used fields    
-
-    filterFields used vr (RecType ltys) =
-      RecType [(lbl,xs,filterFields used' vr ty)
-                     | (lbl,xs,ty) <- ltys
-                     , let used' = narrow used lbl
-                     , not (null used')]
-      where
-        narrow used lbl = [(vr,lbls) | (vr',lbl':lbls) <- used
-                                     , vr==vr', lbl==lbl']
-    filterFields used vr ty = ty
+    -- applying raw makes the term more readable
+    raw (T _ [(p,t)]) = T TRaw [(p,raw t)]
+    raw t             = t
 
     selectVars subst0 ([],               inh) = ([], inh)
     selectVars subst0 (v_ty@(i,v,ty):vs, inh) =
@@ -187,12 +170,12 @@ learnPattern cfg cnc gr smarts pat name pattern = do
         Nothing -> Meta i
     substitute subst t = composSafeOp (substitute subst) t
 
-    instantiate dim_dataset dataset t0 subst0 =
-      let t = foldr (\(_,Vr var) t -> T TRaw [(PV var,t)]) (substitute subst t0) subst0
+    instantiate types dim_dataset dataset t0 subst0 =
+      let t = foldr (\(i,Vr var) t -> T (TTyped (types !! (i-1))) [(PV var,t)]) (substitute subst t0) subst0
       in (length dataset', fromIntegral (length dataset')/fromIntegral (length dataset), subst0, t, dts)
       where
-        attrs            = zipWith (\i (t,_,ty) -> A (TermName t (\(_,v,_) -> v)) ((!!i) . snd)) [0..] (snd (head dataset))
-        (subst, dts)    = unzip substAll
+        attrs        = zipWith (\i (t,_,ty) -> A (TermName t (\(_,v,_) -> v)) ((!!i) . snd)) [0..] (snd (head dataset))
+        (subst, dts) = unzip substAll
         (dataset',substAll) =
             mapAccumL
               (\dataset i ->
@@ -203,18 +186,18 @@ learnPattern cfg cnc gr smarts pat name pattern = do
               dataset
               [1..dim_dataset]
 
-    cross_breed dim_dataset dataset t0 subst0 ((_,_,subst0',_,_):rest) =
+    cross_breed types dim_dataset dataset t0 subst0 ((_,_,subst0',_,_):rest) =
        let subst0'' = subst0++subst0'
            dataset' = map (selectVars subst0'') dataset
-           (freq,accuracy,_, t, dt) = instantiate dim_dataset dataset' t0 subst0''
+           (freq,accuracy,_, t, dt) = instantiate types dim_dataset dataset' t0 subst0''
        in if null rest || accuracy > cfgSyntaxStopping cfg
             then do when (cfgVerbose cfg) $ do
                       putStrLn ""
                       putStrLn ("Found term with accuracy "++show accuracy++":")
-                      print (pp t)
+                      print (pp (raw t))
                       putStrLn ""
                     return (t, freq)
-            else cross_breed dim_dataset dataset t0 subst0'' rest
+            else cross_breed types dim_dataset dataset t0 subst0'' rest
 
 
 type POS  = String
@@ -362,14 +345,68 @@ unionPatts (patts1, p1) (patts2, p2) = filter (\p -> (getPosition p p2) `elem` p
         patts1' = getPosition (unzip patts1) p1
 
 
-combineTrees cfg gr funName name wo [] ty argNames = (Nothing, [])
-combineTrees cfg gr funName name wo ts ty argNames = (Just (showIdent abs_mn, [getFun funName argNames t]), addArgs)
+combineTrees cfg gr funName [] a_p n_p argNames = (defLinType,defLinType,Nothing, [])
+combineTrees cfg gr funName ts a_p n_p argNames =
+  let (addArgs, t) = mkRecord [] [] cn_ty
+  in (ap_ty,cn_ty,Just (showIdent abs_mn, [getFun funName argNames t]), addArgs)
   where
     Ok (MN abs_mn,_) = lookupOrigInfo gr (moduleNameS "Lang",funName)
 
-    (addArgs, t) = mkRecord [] [] ty
-    -- check that variation comes from word order variation
-    varTrees = Map.fromListWith (++) (map (\(f, t, freq) -> (fromJust (lookup name f), [(map fst f,t,freq)])) ts)
+    -- group variations that come from word order
+    varTrees = Map.fromListWith (++)
+                                (map (\(t, freq) ->
+                                          let f = getStrLabels t
+                                          in (fromJust (lookup (idx n_p) f), [(map fst f,t,freq)]))
+                                     ts)
+
+    usedLabels = concatMap (getUsedLabels . fst) ts
+    ap_ty = filterModFields     usedLabels (idx a_p) (var_type a_p)
+    cn_ty = filterHeadFields [] usedLabels (idx n_p) (var_type n_p)
+
+    filterHeadFields path used vr (RecType ltys) =
+      RecType [(lbl,xs,filterHeadFields (lbl:path) used' vr ty)
+                     | (lbl,xs,ty) <- ltys
+                     , let used' = narrow used vr lbl
+                     , not (null used')]
+    filterHeadFields path used vr ty =
+      case Map.lookup (reverse path) varTrees of
+        Just ts -> let (ty_args_count0,ty') = unwrapTableTypes ty
+                       ty_args_count
+                          = foldl (\ty_args_count (_,t,_) ->
+                                      let t_args_count   = (Map.toList . Map.fromListWith (+)) (unwrapTables t)
+                                      in foldl (uncurry . increment) ty_args_count t_args_count)
+                                  ty_args_count0
+                                  ts
+                   in reapply ty_args_count ty'
+        Nothing -> ty
+      where
+        unwrapTableTypes (Table arg res) = ((arg,0):args,res')
+          where (args,res') = unwrapTableTypes res
+        unwrapTableTypes ty              = ([],ty)
+
+        unwrapTables (T (TTyped ty) [(_,t)]) = (ty,1):unwrapTables t
+        unwrapTables t                       = []
+
+        increment xs          y 0 = xs
+        increment []          y c = (y,1):increment [] y (c-1)
+        increment ((x,c'):xs) y c
+          | x == y    = (x,c'+1):increment xs y (c-1)
+          | otherwise = (x,c')  :increment xs y c
+
+        reapply []             ty = ty
+        reapply ((arg,n):args) ty
+          | n == 0    = reapply args ty
+          | otherwise = Table arg (reapply args ty)
+
+    filterModFields used vr (RecType ltys) =
+      RecType [(lbl,xs,filterModFields used' vr ty)
+                     | (lbl,xs,ty) <- ltys
+                     , let used' = narrow used vr lbl
+                     , not (null used')]
+    filterModFields used vr ty = ty
+
+    narrow used vr lbl = [(vr,lbls) | (vr',lbl':lbls) <- used
+                                    , vr==vr', lbl==lbl']
 
     mkRecord lbls addArgs (RecType ltys) =
       let (addArgs',lts) =
@@ -380,26 +417,37 @@ combineTrees cfg gr funName name wo ts ty argNames = (Just (showIdent abs_mn, [g
                          (filter (\(lbl,_,_)->isNothing (isLockLabel lbl)) ltys)
       in (addArgs',R lts)
     mkRecord lbls addArgs ty =
-      matchFields name wo lbls addArgs (Map.lookup (reverse lbls) varTrees)
+      matchFields lbls addArgs ty (Map.lookup (reverse lbls) varTrees)
 
-matchFields name wo lbls addArgs Nothing            = (addArgs, foldl P (Vr name) lbls)
-matchFields name wo lbls addArgs (Just [(_,def,_)]) = (addArgs, def)
-matchFields name wo lbls addArgs (Just defs)
-  | wo == identW = let (_,def,_):_ = sortOn (\(_,_,rank) -> -rank) defs
-                   in (addArgs, def)
-  | otherwise    = getDefs (unzip3 defs)
-  where
-    getDefs (order, defs', rs) | length (nub order) == 1 = (addArgs, fst (head (sortOn snd (zip defs' rs))))
-    getDefs (order1:order2:_, def1:def2:_, _)            = ((wo, [cIsPre]):addArgs,
-                                                            S (T TRaw [getPreOrPost order1 def1, getPreOrPost order2 def2])
-                                                              (P (Vr wo) cIsPre))
+    matchFields lbls addArgs ty Nothing            = (addArgs, foldl P (Vr (idx n_p)) lbls)
+    matchFields lbls addArgs ty (Just [(_,def,_)]) = (addArgs, normalizeTbl ty def)
+    matchFields lbls addArgs ty (Just defs)
+      | idx a_p == identW = let (_,def,_):_ = sortOn (\(_,_,rank) -> -rank) defs
+                            in (addArgs, def)
+      | otherwise         = getDefs (unzip3 defs)
+      where
+        getDefs (order, defs', rs) | length (nub order) == 1 = (addArgs, normalizeTbl ty (fst (head (sortOn snd (zip defs' rs)))))
+        getDefs (order1:order2:_, def1:def2:_, _)            = ((idx a_p, [cIsPre]):addArgs,
+                                                                S (T TRaw [getPreOrPost order1 (normalizeTbl ty def1), getPreOrPost order2 (normalizeTbl ty def2)])
+                                                                  (P (Vr (idx a_p)) cIsPre))
 
-    getPreOrPost o def
-      | o !! 0 == wo = (PP (cPrelude, cTrue)  [], def)
-      | otherwise    = (PP (cPrelude, cFalse) [], def)
+        getPreOrPost o def
+          | o !! 0 == idx a_p = (PP (cPrelude, cTrue)  [], def)
+          | otherwise         = (PP (cPrelude, cFalse) [], def)
 
-    cPrelude = moduleNameS "Prelude"
-    cIsPre = LIdent (rawIdentS "isPre")
+        cPrelude = moduleNameS "Prelude"
+        cIsPre = LIdent (rawIdentS "isPre")
+
+    normalizeTbl ty t = reorderTables [] t
+      where
+        reorderTables args (T (TTyped ty) [(PV v,t)]) = reorderTables ((ty,v):args) t
+        reorderTables args t                          = reconstruct args ty t
+          where
+            reconstruct args (Table arg res) t =
+              T TRaw [(PV v,reconstruct args res t)]
+              where
+                v = fromMaybe identW (lookup arg args)
+            reconstruct args _               t = t
 
 getUsedLabels t@(P _ lbl) =
   let (var,lbls) = unpack t in [(var, reverse lbls)]
