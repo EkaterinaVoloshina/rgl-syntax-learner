@@ -423,7 +423,7 @@ combineTrees cfg gr funName ts a_p n_p argNames =
     matchFields lbls addArgs ty (Just [(_,def,_)]) = (addArgs, normalizeTbl ty def)
     matchFields lbls addArgs ty (Just defs)
       | idx a_p == identW = let (_,def,_):_ = sortOn (\(_,_,rank) -> -rank) defs
-                            in (addArgs, def)
+                            in (addArgs, normalizeTbl ty def)
       | otherwise         = getDefs (unzip3 defs)
       where
         getDefs (order, defs', rs) | length (nub order) == 1 = (addArgs, normalizeTbl ty (fst (head (sortOn snd (zip defs' rs)))))
