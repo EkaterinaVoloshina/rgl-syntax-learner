@@ -37,8 +37,7 @@ learn cfg = do
     (gr, adAP) <- learnAdAP cfg cnc gr noSmarts trees
     --(advAP, threeArgs) <- learnAdvAP lang cnc gr mapping noSmarts trees
 
-    let allArgs = Map.empty -- TODO: Map.fromListWith (++) (concat [oneArgs, twoArgs])
-    let useN = learnUseN cfg allArgs 
+    let useN = learnUseN cfg
 
     -- block of functions that handle NP type -- 
 
@@ -49,6 +48,7 @@ learn cfg = do
     -- block of functions that handle VP type -- 
     (gr, complSlash) <- learnComplSlash cfg cnc gr noSmarts trees
     (gr, predVP) <- learnPredVP cfg cnc gr noSmarts trees
+    let slashV2a = learnSlashV2a cfg
 
     -- block of functions to create modules -- 
     let cat_mn     = cfgLangModuleName cfg "Cat"
@@ -67,7 +67,7 @@ learn cfg = do
                       Just _  -> return grammar_mo)
             grammar_mo
             ((Map.toList . Map.fromListWith (++))
-                  (catMaybes ([positA, useN, adAP, adjCN,  detCN, predVP, complSlash, prepNP, advCN])))
+                  (catMaybes ([positA, useN, adAP, adjCN, detCN, predVP, complSlash, slashV2a, prepNP, advCN])))
 
     writeFile ("src" </> cfgLangName cfg </> cfgLangModuleFileName cfg "Grammar" ++ ".gf") (show (ppModule Unqualified (grammar_mn,grammar_mo)))
     writeFile ("src" </> cfgLangName cfg </> cfgLangModuleFileName cfg "Cat" ++ ".gf") (show (ppModule Unqualified (cat_mn,cat_mo)))
@@ -135,6 +135,10 @@ learnPredVP cfg cnc gr noSmarts trees = do
     gr <- modifyCat cfg gr [("Cl", cl_ty)]
     return (gr, fs)
 
+learnSlashV2a cfg = Just ("Verb", [getFun (identS "SlashV2a") [v] (Vr v)])
+  where
+    v = identS "v"
+
 learnAdAP cfg cnc gr snoSmarts trees = do 
     let name = identS "AdAP"
     adv_ty <- lookupResDef gr (cnc,identS "Adv")
@@ -169,9 +173,9 @@ learnPrepNP cfg cnc gr noSmarts trees = do
             else return gr
     return (gr, fun)
 
-learnUseN cfg ffs = Just ("Noun", [getFun (identS "UseN") [n] (Vr n)])
+learnUseN cfg = Just ("Noun", [getFun (identS "UseN") [n] (Vr n)])
   where
-    n = identS "s"
+    n = identS "n"
 
 learnDetCN cfg cnc gr noSmarts trees = do
     let pattern = (QueryPattern {pos= Nothing, rel=Nothing, morpho=Nothing, idx=identW, var_type=R []},
