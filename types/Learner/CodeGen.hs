@@ -4,7 +4,7 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                noSmarts,
                learnPattern, query,
                getFun, getModule,
-               combineTrees,
+               combineTypes, combineTerms, combineOneTerms,
                getOneField, detQuant, createArt, createNum,
                QueryPattern(..), Val(..)) where
 
@@ -344,14 +344,9 @@ unionPatts (patts1, p1) (patts2, p2) = filter (\p -> (getPosition p p2) `elem` p
 
         patts1' = getPosition (unzip patts1) p1
 
-
-combineTrees cfg gr funName [] a_p n_p argNames = (defLinType,defLinType,Nothing, [])
-combineTrees cfg gr funName ts a_p n_p argNames =
-  let (addArgs, t) = mkRecord [] [] cn_ty
-  in (ap_ty,cn_ty,Just (showIdent abs_mn, [getFun funName argNames t]), addArgs)
+combineTypes [] a_ps n_p = (map (const defLinType) a_ps,defLinType)
+combineTypes ts a_ps n_p = (ap_tys,cn_ty)
   where
-    Ok (MN abs_mn,_) = lookupOrigInfo gr (moduleNameS "Lang",funName)
-
     -- group variations that come from word order
     varTrees = Map.fromListWith (++)
                                 (map (\(t, freq) ->
@@ -360,7 +355,7 @@ combineTrees cfg gr funName ts a_p n_p argNames =
                                      ts)
 
     usedLabels = concatMap (getUsedLabels . fst) ts
-    ap_ty = filterModFields     usedLabels (idx a_p) (var_type a_p)
+    ap_tys = map (\a_p -> filterModFields usedLabels (idx a_p) (var_type a_p)) a_ps
     cn_ty = filterHeadFields [] usedLabels (idx n_p) (var_type n_p)
 
     filterHeadFields path used vr (RecType ltys) =
@@ -408,6 +403,21 @@ combineTrees cfg gr funName ts a_p n_p argNames =
     narrow used vr lbl = [(vr,lbls) | (vr',lbl':lbls) <- used
                                     , vr==vr', lbl==lbl']
 
+
+combineTerms gr funName [] a_p n_p cn_ty argNames = (Nothing, [])
+combineTerms gr funName ts a_p n_p cn_ty argNames =
+  let (addArgs, t) = mkRecord [] [] cn_ty
+  in (Just (showIdent abs_mn, [getFun funName argNames t]), addArgs)
+  where
+    Ok (MN abs_mn,_) = lookupOrigInfo gr (moduleNameS "Lang",funName)
+
+    -- group variations that come from word order
+    varTrees = Map.fromListWith (++)
+                                (map (\(t, freq) ->
+                                          let f = getStrLabels t
+                                          in (fromJust (lookup (idx n_p) f), [(map fst f,t,freq)]))
+                                     ts)
+
     mkRecord lbls addArgs (RecType ltys) =
       let (addArgs',lts) =
                mapAccumL (\s (lbl,_,ty) ->
@@ -448,6 +458,12 @@ combineTrees cfg gr funName ts a_p n_p argNames =
               where
                 v = fromMaybe identW (lookup arg args)
             reconstruct args _               t = t
+
+combineOneTerms gr funName [] a_p n_p argNames = (defLinType,defLinType,Nothing, [])
+combineOneTerms gr funName ts a_p n_p argNames =
+  let ([ap_ty],cn_ty) = combineTypes ts [a_p] n_p
+      (fun, addArgs) = combineTerms gr funName ts a_p n_p cn_ty argNames
+  in (ap_ty,cn_ty,fun,addArgs)
 
 getUsedLabels t@(P _ lbl) =
   let (var,lbls) = unpack t in [(var, reverse lbls)]
