@@ -9,7 +9,6 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                detQuant, createArt, createNum,
                QueryPattern(..), Val(..)) where
 
-import Debug.Trace(trace, traceShowId, traceShow)
 import Prelude hiding ((<>))
 import GF.Infra.Ident hiding (isPrefixOf)
 import GF.Infra.Option
@@ -31,6 +30,7 @@ import Data.Tree
 import Data.Maybe hiding (fromList)
 import Data.Char(toLower)
 import Data.List (sortOn,mapAccumL,partition,nub,isPrefixOf,isInfixOf)
+import Data.Either (partitionEithers)
 import Control.Monad
 import Control.Applicative hiding (Const)
 import qualified Data.Set as Set
@@ -150,13 +150,20 @@ learnPattern cfg cnc gr smarts pat name pattern = do
     decisionTree2term (Decision (TermName t f) _ children) =   
       let pairs = [(f k, decisionTree2term dt) | (k,dt) <- Map.toList children]
           (xs,ys) = partition (uncurry (==)) pairs
+          (us,vs) = partitionEithers (map fun_pairs pairs)
           cs0 = [(p,t2) | (t1,t2) <- ys, Ok p <- [term2patt t1]]
-      in case (xs,ys) of
-           ([],[]) -> Meta 0
-           ([],ys) -> S (T TRaw cs0) t
-           (xs,[]) -> t
-           (xs,ys) -> let x = identS "x"
-                      in S (T TRaw (cs0++[(PV x,Vr x)])) t
+          cs1 = [(p,t2) | (t1,t2) <- vs, Ok p <- [term2patt t1]]
+      in case nub us of
+           [u] -> case cs1 of
+                    []  -> App u t
+                    cs1 -> let x = identS "x"
+                           in S (T TRaw (cs1++[(PV x,App u (Vr x))])) t
+           _   -> case (xs,ys) of
+                    ([],[]) -> Meta 0
+                    ([],ys) -> S (T TRaw cs0) t
+                    (xs,[]) -> t
+                    (xs,ys) -> let x = identS "x"
+                               in S (T TRaw (cs0++[(PV x,Vr x)])) t
       
       where
         term2patt :: Term -> Err Patt
@@ -164,6 +171,10 @@ learnPattern cfg cnc gr smarts pat name pattern = do
           ([], QC c, aa) <- termForm trm
           aa' <- mapM term2patt aa
           return (PP c aa')
+
+        fun_pairs (t,App t1 t2)
+          | t == t2 = Left  t1
+        fun_pairs p = Right p
 
     substitute subst (Meta i) =
       case lookup i subst of
