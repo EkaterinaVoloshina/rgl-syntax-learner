@@ -5,7 +5,8 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                learnPattern, query,
                getFun, getModule,
                combineTypes, combineTerms, combineOneTerms,
-               getOneField, detQuant, createArt, createNum,
+               extendTypeWithIsPre, extendTermWithIsPre,
+               detQuant, createArt, createNum,
                QueryPattern(..), Val(..)) where
 
 import Debug.Trace(trace, traceShowId, traceShow)
@@ -264,21 +265,18 @@ getFun name args f = (name, CncFun (Nothing) (Just (L NoLoc (getArgs args f))) N
     getArgs [] f = f 
     getArgs (arg:args) f = Abs Explicit arg (getArgs args f) 
 
-getModule cfg cnc_mn abs_mn jments =
-  ppModule Unqualified (cnc_mn,mo)
-  where
-    mo =
-      ModInfo
-        { jments = Map.fromList jments
-        , msrc=""
-        , mstatus = MSComplete
-        , mextend = [(cfgLangModuleName cfg "Cat", MIAll)]
-        , mwith=Nothing
-        , mopens=[OSimple (cfgLangModuleName cfg "Res")]
-        , mexdeps=[]
-        , mflags = noOptions
-        , mtype = MTConcrete abs_mn
-        }
+getModule cfg abs_mn jments =
+   ModInfo
+     { jments = Map.fromList jments
+     , msrc=""
+     , mstatus = MSComplete
+     , mextend = [(cfgLangModuleName cfg "Cat", MIAll)]
+     , mwith=Nothing
+     , mopens=[OSimple (moduleNameS "Prelude"),OSimple (cfgLangModuleName cfg "Res")]
+     , mexdeps=[]
+     , mflags = noOptions
+     , mtype = MTConcrete abs_mn
+     }
 
 createPlaceholder cfg gr lbl con_typ fun1 con1 fun2 con2 =
   (mkFun fun1 con1, mkFun fun2 con2, typ)
@@ -404,10 +402,10 @@ combineTypes ts a_ps n_p = (ap_tys,cn_ty)
                                     , vr==vr', lbl==lbl']
 
 
-combineTerms gr funName [] a_p n_p cn_ty argNames = (Nothing, [])
-combineTerms gr funName ts a_p n_p cn_ty argNames =
-  let (addArgs, t) = mkRecord [] [] cn_ty
-  in (Just (showIdent abs_mn, [getFun funName argNames t]), addArgs)
+combineTerms gr funName [] mb_var_isPre n_p cn_ty argNames = (False, Nothing)
+combineTerms gr funName ts mb_var_isPre n_p cn_ty argNames =
+  let (used_isPre, t) = mkRecord [] False cn_ty
+  in (used_isPre, Just (showIdent abs_mn, [getFun funName argNames t]))
   where
     Ok (MN abs_mn,_) = lookupOrigInfo gr (moduleNameS "Lang",funName)
 
@@ -418,35 +416,34 @@ combineTerms gr funName ts a_p n_p cn_ty argNames =
                                           in (fromJust (lookup (idx n_p) f), [(map fst f,t,freq)]))
                                      ts)
 
-    mkRecord lbls addArgs (RecType ltys) =
-      let (addArgs',lts) =
+    mkRecord lbls used_isPre (RecType ltys) =
+      let (used_isPre',lts) =
                mapAccumL (\s (lbl,_,ty) ->
                                let (s',t) = mkRecord (lbl:lbls) s ty
                                in (s',(lbl,(Nothing, t))))
-                         addArgs
+                         used_isPre
                          (filter (\(lbl,_,_)->isNothing (isLockLabel lbl)) ltys)
-      in (addArgs',R lts)
-    mkRecord lbls addArgs ty =
-      matchFields lbls addArgs ty (Map.lookup (reverse lbls) varTrees)
-
-    matchFields lbls addArgs ty Nothing            = (addArgs, foldl P (Vr (idx n_p)) lbls)
-    matchFields lbls addArgs ty (Just [(_,def,_)]) = (addArgs, normalizeTbl ty def)
-    matchFields lbls addArgs ty (Just defs)
-      | idx a_p == identW = let (_,def,_):_ = sortOn (\(_,_,rank) -> -rank) defs
-                            in (addArgs, normalizeTbl ty def)
-      | otherwise         = getDefs (unzip3 defs)
+      in (used_isPre',R lts)
+    mkRecord lbls used_isPre ty =
+      case Map.lookup (reverse lbls) varTrees of
+        Nothing -> (used_isPre, foldl P (Vr (idx n_p)) lbls)
+        Just [(_,def,_)] -> (used_isPre, normalizeTbl ty def)
+        Just defs ->
+          case mb_var_isPre of
+            Just var_isPre -> getDefs var_isPre used_isPre (unzip3 defs)
+            Nothing        -> let (_,def,_):_ = sortOn (\(_,_,rank) -> -rank) defs
+                              in (used_isPre, normalizeTbl ty def)
       where
-        getDefs (order, defs', rs) | length (nub order) == 1 = (addArgs, normalizeTbl ty (fst (head (sortOn snd (zip defs' rs)))))
-        getDefs (order1:order2:_, def1:def2:_, _)            = ((idx a_p, [cIsPre]):addArgs,
-                                                                S (T TRaw [getPreOrPost order1 (normalizeTbl ty def1), getPreOrPost order2 (normalizeTbl ty def2)])
-                                                                  (P (Vr (idx a_p)) cIsPre))
-
-        getPreOrPost o def
-          | o !! 0 == idx a_p = (PP (cPrelude, cTrue)  [], def)
-          | otherwise         = (PP (cPrelude, cFalse) [], def)
-
-        cPrelude = moduleNameS "Prelude"
-        cIsPre = LIdent (rawIdentS "isPre")
+        getDefs var_isPre used_isPre (order, defs', rs)
+          | length (nub order) == 1 = (used_isPre, normalizeTbl ty (fst (head (sortOn snd (zip defs' rs)))))
+        getDefs var_isPre used_isPre (order1:order2:_, def1:def2:_, _) =
+          (True,
+           S (T TRaw [getPreOrPost order1 (normalizeTbl ty def1), getPreOrPost order2 (normalizeTbl ty def2)])
+             (P (Vr var_isPre) cIsPre))
+          where
+            getPreOrPost o def
+              | o !! 0 == var_isPre = (PP (cPrelude, cTrue)  [], def)
+              | otherwise           = (PP (cPrelude, cFalse) [], def)
 
     normalizeTbl ty t = reorderTables [] t
       where
@@ -459,11 +456,21 @@ combineTerms gr funName ts a_p n_p cn_ty argNames =
                 v = fromMaybe identW (lookup arg args)
             reconstruct args _               t = t
 
-combineOneTerms gr funName [] a_p n_p argNames = (defLinType,defLinType,Nothing, [])
-combineOneTerms gr funName ts a_p n_p argNames =
+combineOneTerms gr funName [] mb_var_isPre a_p n_p argNames = (defLinType,defLinType,False,Nothing)
+combineOneTerms gr funName ts mb_var_isPre a_p n_p argNames =
   let ([ap_ty],cn_ty) = combineTypes ts [a_p] n_p
-      (fun, addArgs) = combineTerms gr funName ts a_p n_p cn_ty argNames
-  in (ap_ty,cn_ty,fun,addArgs)
+      (used_isPre, fun) = combineTerms gr funName ts mb_var_isPre n_p cn_ty argNames
+  in (ap_ty,cn_ty,used_isPre,fun)
+
+cPrelude = moduleNameS "Prelude"
+cIsPre = LIdent (rawIdentS "isPre")
+
+extendTypeWithIsPre (RecType ltys)
+  | not (any (\(l,_,_) -> l == cIsPre) ltys) =
+      RecType (ltys ++ [(cIsPre,[],Q (cPrelude,cBool))])
+extendTypeWithIsPre ty             = ty
+
+extendTermWithIsPre t = ExtR t (R [(cIsPre,(Nothing,Q (cPrelude,cTrue)))])
 
 getUsedLabels t@(P _ lbl) =
   let (var,lbls) = unpack t in [(var, reverse lbls)]

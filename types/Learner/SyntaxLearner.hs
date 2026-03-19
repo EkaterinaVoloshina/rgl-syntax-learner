@@ -32,24 +32,23 @@ learn cfg = do
     trees <- fmap concat $ mapM (readCONLL cfg) (cfgTreebanks cfg)
 
     -- block of functions that handle CN type --
-    (gr, adjCN, advCN, oneArgs) <- learnCN cfg cnc gr noSmarts trees
+    (gr, adjCN, advCN, positA) <- learnCN cfg cnc gr noSmarts trees
 
-    (adAP, twoArgs) <- learnAdAP cfg cnc gr noSmarts trees
+    (gr, adAP) <- learnAdAP cfg cnc gr noSmarts trees
     --(advAP, threeArgs) <- learnAdvAP lang cnc gr mapping noSmarts trees
 
     let allArgs = Map.empty -- TODO: Map.fromListWith (++) (concat [oneArgs, twoArgs])
-    let positA = learnPositA cfg allArgs
     let useN = learnUseN cfg allArgs 
 
     -- block of functions that handle NP type -- 
 
     -- TODO: add lincats directly to cat 
     (gr, detCN, np) <- learnDetCN cfg cnc gr noSmarts trees
-    (prepNP, fourArgs) <- learnPrepNP cfg cnc gr noSmarts trees
+    (gr, prepNP) <- learnPrepNP cfg cnc gr noSmarts trees
     
     -- block of functions that handle VP type -- 
-    (gr, complSlash, verbArgs) <- learnComplSlash cfg cnc gr noSmarts trees
-    (gr, predVP, verb2Args) <- learnPredVP cfg cnc gr noSmarts trees
+    (gr, complSlash) <- learnComplSlash cfg cnc gr noSmarts trees
+    (gr, predVP) <- learnPredVP cfg cnc gr noSmarts trees
 
     -- block of functions to create modules -- 
     let cat_mn     = cfgLangModuleName cfg "Cat"
@@ -60,8 +59,9 @@ learn cfg = do
     grammar_mo <-
       foldM (\lang_mo (m, funs) ->
                  do let mn = cfgLangModuleName cfg m
-                        mo = getModule cfg mn (moduleNameS m) funs
-                    writeFile ("src" </> cfgLangName cfg </> cfgLangModuleFileName cfg m ++ ".gf") (show mo)
+                        mo = getModule cfg (moduleNameS m) funs
+                    writeFile ("src" </> cfgLangName cfg </> cfgLangModuleFileName cfg m ++ ".gf")
+                              (show (ppModule Unqualified (mn,mo)))
                     case lookup mn (mextend lang_mo) of
                       Nothing -> return grammar_mo{mextend=(mn,MIAll):mextend lang_mo}
                       Just _  -> return grammar_mo)
@@ -73,13 +73,6 @@ learn cfg = do
     writeFile ("src" </> cfgLangName cfg </> cfgLangModuleFileName cfg "Cat" ++ ".gf") (show (ppModule Unqualified (cat_mn,cat_mo)))
 
  
-addLincats cat lincats = Map.union (Map.fromList (map (\(x, y) -> (identS x, y)) lincats)) (jments cat)
-
-lookupRes gr cfg = do
-  case lookupModule gr (cfgLangModuleName cfg "Res") of 
-    Ok m -> m 
-    Bad f -> ModInfo {jments = Map.empty, msrc="", mstatus = MSComplete, mextend = [], mwith=Nothing, mopens=[], mexdeps=[], mflags = noOptions,  mtype = MTResource}
-
 
 learnCN cfg cnc gr noSmarts trees = do
     n_ty <- lookupResDef gr (cnc,identS "N")
@@ -101,12 +94,20 @@ learnCN cfg cnc gr noSmarts trees = do
     let (_, patts2) = unzip $ query trees pattern2
     terms2 <- learnPattern cfg cnc gr noSmarts patts2 name2 pattern2
 
-    let ([ap_ty],cn_ty) = combineTypes (terms1++terms2) [a_p] n_p
-        (adjCN, addArgs) = combineTerms gr name1 terms1 a_p n_p cn_ty [idx a_p, idx n_p]
-        (advCN, _) = combineTerms gr name2 terms2 a_p n_p cn_ty [idx n_p,idx adv_p]
+    let ([ap_ty0],cn_ty) = combineTypes (terms1++terms2) [a_p] n_p
+        (used_isPre, adjCN) = combineTerms gr name1 terms1 (Just (idx a_p)) n_p cn_ty [idx a_p, idx n_p]
+        (_, advCN) = combineTerms gr name2 terms2 Nothing n_p cn_ty [idx n_p,idx adv_p]
+        ap_ty | used_isPre = extendTypeWithIsPre ap_ty0
+              | otherwise  = ap_ty0
+
+    let positA = Just ("Adjective", [getFun (identS "PositA") [a] def])
+                 where
+                   a = identS "a"
+                   def | used_isPre = extendTermWithIsPre (Vr a)
+                       | otherwise  = Vr a
 
     gr <- modifyCat cfg gr [("AP",ap_ty),("CN",cn_ty)]
-    return (gr, adjCN, advCN, addArgs)
+    return (gr, adjCN, advCN, positA)
 
 learnComplSlash cfg cnc gr noSmarts trees = do
     let name = identS "ComplSlash"
@@ -116,10 +117,10 @@ learnComplSlash cfg cnc gr noSmarts trees = do
         np_p = QueryPattern {pos=Just ["NOUN"], rel = Just "comp:obj", morpho=Nothing, idx=identS "np", var_type=np_ty}
         pattern = (v_p,np_p)
     let (_, patts) = unzip $ query trees pattern
-    fun <- learnPattern cfg cnc gr noSmarts patts name pattern
-    let (_, vp_ty, fields, addArgs) = combineOneTerms gr name fun np_p{idx=identW} v_p [idx v_p,idx np_p]
+    terms <- learnPattern cfg cnc gr noSmarts patts name pattern
+    let (_, vp_ty, _, fun) = combineOneTerms gr name terms Nothing np_p v_p [idx v_p,idx np_p]
     gr <- modifyCat cfg gr [("VPSlash",v_ty),("VP",vp_ty)]
-    return (gr, fields, addArgs)
+    return (gr, fun)
 
 learnPredVP cfg cnc gr noSmarts trees = do 
     let name = identS "PredVP"
@@ -130,9 +131,9 @@ learnPredVP cfg cnc gr noSmarts trees = do
         pattern = (vp_p,np_p)
     let (_, patts) = unzip $ query trees pattern
     fun <- learnPattern cfg cnc gr noSmarts patts name pattern
-    let (_, cl_ty, fs, addArgs) = combineOneTerms gr name fun np_p{idx=identW} vp_p [idx np_p, idx vp_p]
+    let (_, cl_ty, _, fs) = combineOneTerms gr name fun Nothing np_p vp_p [idx np_p, idx vp_p]
     gr <- modifyCat cfg gr [("Cl", cl_ty)]
-    return (gr, fs, addArgs)
+    return (gr, fs)
 
 learnAdAP cfg cnc gr snoSmarts trees = do 
     let name = identS "AdAP"
@@ -142,9 +143,9 @@ learnAdAP cfg cnc gr snoSmarts trees = do
         ada_p = QueryPattern {pos=Just ["ADV"], rel=Just "mod", morpho=Nothing, idx=identS "ada", var_type=adv_ty}
         pattern = (ap_p,ada_p)
     let (_, patts) = unzip $ query trees pattern
-    fun <- learnPattern cfg cnc gr noSmarts patts name pattern
-    let (_, _, fields, addArgs) = combineOneTerms gr name fun ada_p ap_p [idx ada_p, idx ap_p]
-    return (fields, addArgs)
+    terms <- learnPattern cfg cnc gr noSmarts patts name pattern
+    let (_, _, _, fun) = combineOneTerms gr name terms Nothing ada_p ap_p [idx ada_p, idx ap_p]
+    return (gr, fun)
 
 --learnAdvAP lang cnc gr mapping noSmarts trees = do 
 --    let name = identS "AdvAP"
@@ -154,21 +155,19 @@ learnAdAP cfg cnc gr snoSmarts trees = do
 
 learnPrepNP cfg cnc gr noSmarts trees = do
     -- first find everything that will output Adv
-    let name1 = identS "PrepNP"
+    let name = identS "PrepNP"
     prep_ty <- lookupResDef gr (cnc,identS "Prep")
     np_ty <- lookupResDef gr (cnc,identS "NP")
     let prep_p = QueryPattern {pos= Just ["ADP"], rel=Nothing, morpho=Nothing, idx=identS "p", var_type=prep_ty}
         np_p   = QueryPattern {pos= Just ["NOUN"], rel=Just "comp:obj", morpho=Nothing, idx=identS "np", var_type=np_ty}
         pattern = (prep_p, np_p)
     let (trees', patts1) = unzip $ query trees pattern
-    fun <- learnPattern cfg cnc gr noSmarts patts1 name1 pattern
-    let (_, _, fields1, addArgs) = combineOneTerms gr name1 fun prep_p np_p{var_type=defLinType} [idx prep_p, idx np_p]
-
-    return (fields1, addArgs)
-
-learnPositA lang ffs = Just ("Adjective", [getFun (identS "PositA") [a] (Vr a)])
-  where
-    a = identS "a"
+    terms <- learnPattern cfg cnc gr noSmarts patts1 name pattern
+    let (_, _, used_isPre, fun) = combineOneTerms gr name terms (Just (idx prep_p)) prep_p np_p{var_type=defLinType} [idx prep_p, idx np_p]
+    gr <- if used_isPre
+            then modifyCat cfg gr [("Prep", extendTypeWithIsPre prep_ty)]
+            else return gr
+    return (gr, fun)
 
 learnUseN cfg ffs = Just ("Noun", [getFun (identS "UseN") [n] (Vr n)])
   where
@@ -196,9 +195,9 @@ learnDetCN cfg cnc gr noSmarts trees = do
     let (trees', patts0) = unzip $ query trees pattern
         patts = [(n_patt,(id2,lemma2,pos2,patch morph1 morph2,rel2)) | (n_patt@(id1,lemma1,pos1,morph1,rel1),(id2,lemma2,pos2,morph2,rel2)) <- patts0]
         patch morph1 morph2 = filter (\x -> fst x /= "Definite") morph2 ++ filter (\x -> fst x == "Definite") morph1
-    fun <- learnPattern cfg cnc gr noSmarts patts name pattern
+    terms <- learnPattern cfg cnc gr noSmarts patts name pattern
 
-    let (_,np_ty,Just (_,[detCN]),_) = combineOneTerms gr name fun det_p{idx=identW} cn_p [idx det_p, idx cn_p]
+    let (_,np_ty,_,Just (_,[detCN])) = combineOneTerms gr name terms Nothing det_p cn_p [idx det_p, idx cn_p]
 
     let lincats = [("NP", np_ty), ("Quant", quant_ty), ("Num", numType), ("Det", det_ty)]
     gr <- modifyCat cfg gr lincats
