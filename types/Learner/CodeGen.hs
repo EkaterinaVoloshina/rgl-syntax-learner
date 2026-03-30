@@ -7,7 +7,7 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                combineTypes, combineTerms, combineOneTerms,
                extendTypeWithIsPre, extendTermWithIsPre,
                detQuant, createArt, createNum,
-               QueryPattern(..), Val(..)) where
+               QueryPattern(..), Val(..), Order(..)) where
 
 import Prelude hiding ((<>))
 import GF.Infra.Ident hiding (isPrefixOf)
@@ -44,26 +44,40 @@ type Types = Map.Map String [Label]
 data Val = Match String | Not String  deriving (Show)
 type Feat = (String, Val)
 
+data Order = NA | Before Int | After Int deriving (Show)
+
 data QueryPattern = QueryPattern {
     pos :: Maybe [String],
     rel :: Maybe String, 
     morpho :: Maybe [Feat],
     idx :: Ident,
-    var_type :: Type
+    var_type :: Type,
+    lin_order :: Order
 } deriving (Show)
 
 --query :: Tree Node -> ((String, Maybe String), (String, Maybe String)) -> IO [(Node, Node)]
 query trees fun = do 
   t <- trees
-  res <- filter (\(t, e) -> matchEdges fun e) (edges t)
-  return res
+  let p = pairs fun []
+  r <- res (head p) t
+  -- fun to tuples 
+ 
+  return r
+  where 
+    pairs (a:b:[])   res = res ++ [(a,b)]
+    pairs (a:b:rest) res = pairs rest (res ++ [(a,b)])
+
+    res patt t = filter (\(t, e) -> matchEdges patt e) (edges t)
+
+  
+    
     
 learnPattern cfg cnc gr smarts pat name pattern = do
 
     putStrLn ("== " ++ showIdent name ++ " ==" )
-
-    let QueryPattern {idx=ap, var_type=a_ty} = snd pattern
-        QueryPattern {idx=cn, var_type=n_ty} = fst pattern
+    -- TODO: generalize
+    let QueryPattern {idx=ap, var_type=a_ty} = pattern !! 1
+        QueryPattern {idx=cn, var_type=n_ty} = pattern !! 0
         patts = do  -- query edges matching AdjCN
           (n1, n2) <- pat
           return [(n1,Vr cn,n_ty),(n2,Vr ap,a_ty)]
@@ -264,7 +278,8 @@ readCONLL cfg treebank = do
 
 matchEdges (p1, p2) (n1@(_,_,pos1,m1,rel1),n2@(_,_,pos2,m2,rel2)) = checkPos (pos p1) pos1 && 
                     checkPos (pos p2) pos2 && checkRel (rel p1) rel1 && checkRel (rel p2) rel2 && checkMorpho (morpho p1) m1 && checkMorpho (morpho p2) m2
-  where checkRel p r = isNothing p || fromJust p == r
+  where     
+        checkRel p r = isNothing p || fromJust p == r
         checkMorpho q e = isNothing q || and (map (\m -> checkFeat m e) (fromJust q))
         checkFeat (feat, Match val) m2 = (feat, val) `elem` m2
         checkFeat (feat, Not val) m2 = (feat, val) `notElem` m2
