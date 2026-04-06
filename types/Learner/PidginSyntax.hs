@@ -14,7 +14,6 @@ import GF.Data.Operations
 import GF.Infra.CheckM
 import Control.Monad
 import qualified Data.Map as Map
-import Debug.Trace
 
 options =
   [ Option "v" [] (NoArg (\cfg->cfg{cfgVerbose=True})) "verbose output"
@@ -37,8 +36,7 @@ learn cfg = do
                              _     -> getModule cfg abs_mn []
               if elem name ["Adjective","Adverb","Conjunction","Idiom",
                             "Names","Noun","Phrase","Question",
-                            "Relative","Sentence","Symbol",
-                            "Tense","Text","Verb"]
+                            "Relative","Sentence","Symbol","Verb"]
                 then do putStrLn ("== "++name++" ==")
                         let cnc_mi' = Map.foldlWithKey (addPidginCncFun gr cnc_mn) cnc_mi (jments abs_mi)
                         if Map.size (jments cnc_mi') /= Map.size (jments cnc_mi)
@@ -54,24 +52,24 @@ learn cfg = do
   writeFile ("src" </> cfgLangName cfg </> cfgLangModuleFileName cfg "Grammar" ++ ".gf") (show (ppModule Unqualified (grammar_mn,grammar_mo)))
   where
     addPidginCncFun gr mn mi name (AbsFun (Just l_ty) _) =
-      case runCheck (linTypeOfType gr mn l_ty) of
+      case runCheck (linTypeOfType cfg gr mn l_ty) of
         Ok (ty,_) -> case Map.lookup name (jments mi) of
                        Just _  -> mi
-                       Nothing -> trace (show (name,ty)) $ mi{jments=Map.insert name (pidginCncFun gr ty) (jments mi)}
-        Bad _     -> mi
+                       Nothing -> mi{jments=Map.insert name (pidginCncFun gr ty) (jments mi)}
+        Bad msg   -> mi
     addPidginCncFun gr mn mi _ _ = mi
 
     pidginCncFun gr ty = CncFun Nothing (Just (L NoLoc (generateTerm gr [] ty))) Nothing Nothing
 
-linTypeOfType :: Grammar -> ModuleName -> L Type -> Check Type
-linTypeOfType cnc m (L loc typ) = do
-  let (ctxt,res_cat@(m,cat)) = typeSkeleton typ
-  val <- lookupLincat cnc m cat >>= normalForm g
+linTypeOfType :: Config -> Grammar -> ModuleName -> L Type -> Check Type
+linTypeOfType cfg cnc m (L loc typ) = do
+  let (ctxt,res_cat) = typeSkeleton typ
+  val <- linCatOf res_cat
   args <- mapM mkLinArg (zip [1..] ctxt)
   return (mkProd args val [])
  where
-   mkLinArg (i,(n,(m,cat))) = do
-     val  <- lookupLincat cnc m cat >>= normalForm g
+   mkLinArg (i,(n,cat)) = do
+     val  <- linCatOf cat
      let vars = mkRecType varLabel $ replicate n typeStr
      rec <- if n==0 then return val else
                        errIn (render ("extending" $$
@@ -79,5 +77,9 @@ linTypeOfType cnc m (L loc typ) = do
                                       "with" $$
                                       nest 2 val)) $
                              plusRecType vars val
-     return (Explicit,varX i,lock cat rec)
+     return (Explicit,varX i,rec)
+   linCatOf (MN m,c) = do
+     let cnc_m  = cfgLangModuleName cfg "Cat"
+     rec <- lookupLincat cnc cnc_m c >>= normalForm g
+     return (lock c rec)
    g = Gl cnc (stdPredef g) False

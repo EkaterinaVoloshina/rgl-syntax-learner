@@ -577,7 +577,7 @@ generateTerm gr env (Table arg res) =
   let x = freshVar env arg
   in T TRaw [(PV x,generateTerm gr ((Vr x,arg):env) res)]
 generateTerm gr env (RecType ltys) =
-  R [(l,(Nothing,generateTerm gr env ty)) | (l,[],ty) <- ltys]
+  R [(l,(Nothing,generateTerm gr env ty)) | (l,[],ty) <- ltys, isNothing (isLockLabel l)]
 generateTerm gr env (Sort s)
   | s == cStr = fromMaybe Empty (concatArgs (reverse env))
   where
