@@ -59,7 +59,7 @@ learn cfg = do
         Bad msg   -> mi
     addPidginCncFun gr mn mi _ _ = mi
 
-    pidginCncFun gr ty = CncFun Nothing (Just (L NoLoc (generateTerm gr [] ty))) Nothing Nothing
+    pidginCncFun gr ty = CncFun Nothing (Just (L NoLoc (generateTerm gr [] [] ty))) Nothing Nothing
 
 linTypeOfType :: Config -> Grammar -> ModuleName -> L Type -> Check Type
 linTypeOfType cfg cnc m (L loc typ) = do

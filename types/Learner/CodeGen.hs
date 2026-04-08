@@ -569,55 +569,62 @@ findInh gr cfg morpho t (RecType fs) = do
   findInh gr cfg morpho (P t l) ty
 findInh gr cfg morpho t ty = empty
 
-generateTerm gr env (Prod bt _ arg res) =
+generateTerm gr env lbls (Prod bt _ arg res) =
   let x = freshVar env arg
-      t = generateTerm gr ((Vr x,arg):env) res
+      t = generateTerm gr ((Vr x,arg):env) lbls res
   in Abs bt x t
-generateTerm gr env (Table arg res) =
+generateTerm gr env lbls (Table arg res) =
   let x = freshVar env arg
-  in T TRaw [(PV x,generateTerm gr ((Vr x,arg):env) res)]
-generateTerm gr env (RecType ltys) =
-  R [(l,(Nothing,generateTerm gr env ty)) | (l,[],ty) <- ltys, isNothing (isLockLabel l)]
-generateTerm gr env (Sort s)
+  in T TRaw [(PV x,generateTerm gr ((Vr x,arg):env) lbls res)]
+generateTerm gr env lbls (RecType ltys) =
+  R [(l,(Nothing,generateTerm gr env (l:lbls) ty)) | (l,[],ty) <- ltys, isNothing (isLockLabel l)]
+generateTerm gr env lbls (Sort s)
   | s == cStr = fromMaybe Empty (concatArgs (reverse env))
   where
     concatArgs []            = return Empty
     concatArgs ((t,ty):args) =
-      case firstValue gr env t ty (Sort cStr) of
+      case firstValue gr env (reverse lbls) t ty (Sort cStr) of
         Nothing -> concatArgs args
         Just t1 -> do t2 <- concatArgs args
                       case t2 of
                         Empty -> return t1
                         _     -> return (C t1 t2)
-generateTerm gr env ty0 = select env
+generateTerm gr env lbls ty0 = select env
   where
     select []           = 
       case allParamValues gr ty0 of
         Ok (t:ts) -> t
         _         -> FV []
     select ((t,ty):env) =
-      case firstValue gr env t ty ty0 of
+      case firstValue gr env [] t ty ty0 of
         Just t  -> t
         Nothing -> select env
 
-firstValue gr env t (Table arg res) ty0 = do
+firstValue gr env lbls t (Table arg res) ty0 = do
   t' <- select env
-  firstValue gr env (S t t') res ty0
+  firstValue gr env lbls (S t t') res ty0
   where
     select []           = 
       case allParamValues gr arg of
         Ok (t:ts) -> return t
         _         -> return (FV [])
     select ((t,ty):env) =
-      firstValue gr env t ty arg <|> select env
-firstValue gr env t (RecType ltys) ty0 = select ltys
+      firstValue gr env lbls t ty arg <|> select env
+firstValue gr env lbls t (RecType ltys) ty0 =
+  let preselect =
+        case lbls of
+          []     -> [firstValue gr env [] (P t l') ty ty0 | (l',_,ty) <- ltys, l'==theLinLabel]
+          (l:ls) -> [firstValue gr env ls (P t l') ty ty0 | (l',_,ty) <- ltys, l'==l]
+  in case preselect of
+      (Just t:_) -> return t
+      _          -> selectAny ltys
   where
-    select []              = empty
-    select ((l,_,ty):ltys) =
-      case firstValue gr env (P t l) ty ty0 of
+    selectAny []              = empty
+    selectAny ((l,_,ty):ltys) =
+      case firstValue gr env lbls (P t l) ty ty0 of
         Just t  -> return t
-        Nothing -> select ltys
-firstValue gr env t ty ty0
+        Nothing -> selectAny ltys
+firstValue gr env lbls t ty ty0
   | ty == ty0 = return t
   | otherwise = empty
 
