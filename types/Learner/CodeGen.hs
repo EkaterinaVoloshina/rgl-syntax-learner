@@ -7,6 +7,7 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                combineTypes, combineTerms, combineOneTerms,
                extendTypeWithIsPre, extendTermWithIsPre,
                detQuant, createArt, createNum,
+               generateTerm,
                QueryPattern(..), Val(..), Order(..)) where
 
 import Prelude hiding ((<>))
@@ -117,7 +118,7 @@ learnPattern cfg cnc gr smarts pat name pattern = do
 
       let types = map (\(_,_,ty)->ty) (fst (head dataset))
           (freq, accuracy,_,t, dt) = instantiate types dim_dataset dataset t0 []
-      if dim_inh > 0 && accuracy > cfgSyntaxStopping cfg
+      if (dim_dataset == 0 || dim_inh > 0) && accuracy > cfgSyntaxStopping cfg
         then do when (cfgVerbose cfg) $ do
                   putStrLn ""
                   putStrLn ("Found term with accuracy "++show accuracy++":")
@@ -568,13 +569,72 @@ findInh gr cfg morpho t (RecType fs) = do
   findInh gr cfg morpho (P t l) ty
 findInh gr cfg morpho t ty = empty
 
+generateTerm gr env lbls (Prod bt _ arg res) =
+  let x = freshVar env arg
+      t = generateTerm gr ((Vr x,arg):env) lbls res
+  in Abs bt x t
+generateTerm gr env lbls (Table arg res) =
+  let x = freshVar env arg
+  in T TRaw [(PV x,generateTerm gr ((Vr x,arg):env) lbls res)]
+generateTerm gr env lbls (RecType ltys) =
+  R [(l,(Nothing,generateTerm gr env (l:lbls) ty)) | (l,[],ty) <- ltys, isNothing (isLockLabel l)]
+generateTerm gr env lbls (Sort s)
+  | s == cStr = fromMaybe Empty (concatArgs (reverse env))
+  where
+    concatArgs []            = return Empty
+    concatArgs ((t,ty):args) =
+      case firstValue gr env (reverse lbls) t ty (Sort cStr) of
+        Nothing -> concatArgs args
+        Just t1 -> do t2 <- concatArgs args
+                      case t2 of
+                        Empty -> return t1
+                        _     -> return (C t1 t2)
+generateTerm gr env lbls ty0 = select env
+  where
+    select []           = 
+      case allParamValues gr ty0 of
+        Ok (t:ts) -> t
+        _         -> FV []
+    select ((t,ty):env) =
+      case firstValue gr env [] t ty ty0 of
+        Just t  -> t
+        Nothing -> select env
+
+firstValue gr env lbls t (Table arg res) ty0 = do
+  t' <- select env
+  firstValue gr env lbls (S t t') res ty0
+  where
+    select []           = 
+      case allParamValues gr arg of
+        Ok (t:ts) -> return t
+        _         -> return (FV [])
+    select ((t,ty):env) =
+      firstValue gr env lbls t ty arg <|> select env
+firstValue gr env lbls t (RecType ltys) ty0 =
+  let preselect =
+        case lbls of
+          []     -> [firstValue gr env [] (P t l') ty ty0 | (l',_,ty) <- ltys, l'==theLinLabel]
+          (l:ls) -> [firstValue gr env ls (P t l') ty ty0 | (l',_,ty) <- ltys, l'==l]
+  in case preselect of
+      (Just t:_) -> return t
+      _          -> selectAny ltys
+  where
+    selectAny []              = empty
+    selectAny ((l,_,ty):ltys) =
+      case firstValue gr env lbls (P t l) ty ty0 of
+        Just t  -> return t
+        Nothing -> selectAny ltys
+firstValue gr env lbls t ty ty0
+  | ty == ty0 = return t
+  | otherwise = empty
+
 freshVar env ty = fresh (letter ty) 1
   where
     letter (QC (_,c)) =
       convert (showIdent c)
     letter (RecType xs) =
       --case [cat | (l,_,_) <- xs, Just cat <- [isLockLabel l]] of
-      case [id | (LIdent id,_,_) <- xs, Just _ <- [isLockLabel (LIdent id)]] of
+      case [id | (lbl,_,_) <- xs, Just id <- [isLockLabel lbl]] of
         [cat] -> convert (showRawIdent cat)
         _     -> "v"
     letter _ = "v"
