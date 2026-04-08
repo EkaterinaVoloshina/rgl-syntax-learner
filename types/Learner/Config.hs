@@ -14,6 +14,10 @@ data Config
       , cfgMinForms :: Int
       , cfgAnalyticTenses :: Bool
       , cfgSyntaxStopping :: Double
+      , cfgTrainSize :: Maybe Int
+      , cfgSplit :: Float
+      , cfgOutputFolder :: String
+      , cfgResultsFolder :: String
       , cfgUpdPOS   :: String -> String -> String
       , cfgUpdForms :: String -> String -> [([String],String)] -> [([String],String)]
       , cfgFilterLemmas :: String -> String -> Bool
@@ -35,6 +39,10 @@ defaultConfig iso2 iso3 name =
          , cfgMinForms = 5
          , cfgAnalyticTenses = False
          , cfgSyntaxStopping = 0.95
+         , cfgTrainSize = Nothing
+         , cfgSplit = 0.9
+         , cfgOutputFolder = "src"
+         , cfgResultsFolder = "results"
          , cfgUpdPOS = \word pos -> pos
          , cfgUpdForms = \word pos forms -> forms
          , cfgFilterLemmas = \word pos -> True

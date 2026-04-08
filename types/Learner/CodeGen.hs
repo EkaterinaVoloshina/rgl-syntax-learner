@@ -30,7 +30,7 @@ import System.Directory
 import Data.Tree
 import Data.Maybe hiding (fromList)
 import Data.Char(toLower)
-import Data.List (sortOn,mapAccumL,partition,nub,isPrefixOf,isInfixOf)
+import Data.List (sortOn,mapAccumL,partition,nub,isPrefixOf,isInfixOf,isSuffixOf)
 import Data.Either (partitionEithers)
 import Control.Monad
 import Control.Applicative hiding (Const)
@@ -42,10 +42,10 @@ import Learner.DecisionTree
 type Types = Map.Map String [Label]
 
 
-data Val = Match String | Not String  deriving (Show)
+data Val = Match [String] | Not [String] deriving (Show)
 type Feat = (String, Val)
 
-data Order = NA | Before Int | After Int deriving (Show)
+data Order = NA | Before String | After String deriving (Show)
 
 data QueryPattern = QueryPattern {
     pos :: Maybe [String],
@@ -242,7 +242,8 @@ noSmarts = Map.empty
 
 data TermName a = TermName Term (a -> Term)
 
-readCONLL :: Config -> String -> IO [Tree Node]
+
+readCONLL :: Config -> String -> IO ([Tree Node], [Tree Node])
 readCONLL cfg treebank = do
   let fdir  = "data" </> cfgLangName cfg
   let fpath = fdir </> treebank
@@ -254,11 +255,31 @@ readCONLL cfg treebank = do
       ExitSuccess -> return ()
       _           -> exitWith res
   fs <- getDirectoryContents fpath
-  fmap concat $ forM fs $ \f -> do
+  let files = filter (isSuffixOf ".conllu") fs
+  let test = filter (isSuffixOf "test.conllu") files
+  let train = filter (\f -> f `notElem` test) files
+  if null train || null test then do 
+    dataset <- fmap concat $ forM fs $ \f -> do
      if takeExtension f == ".conllu"
-       then do ls <- fmap lines $ readFile (fpath </> f)
-               return (map (toTree "0" (0,"root","",[],"")) (stanzas ls))
+       then do 
+          ls <- fmap lines $ readFile (fpath </> f)
+          return ((map (toTree "0" (0,"root","",[],"")) (stanzas ls)))
        else return []
+    if cfgSplit cfg == 1 then do return (dataset, dataset)
+    else do 
+      let trainRatio = round ((cfgSplit cfg) * fromIntegral (length dataset))
+      return (take trainRatio dataset, drop trainRatio dataset)
+  else do 
+    trainDataset <- fmap concat $ forM train $ \f -> do
+      ls <- fmap lines $ readFile (fpath </> f)
+      return ((map (toTree "0" (0,"root","",[],"")) (stanzas ls)))
+    testDataset <- fmap concat $ forM test $ \f -> do
+      ls <- fmap lines $ readFile (fpath </> f)
+      return ((map (toTree "0" (0,"root","",[],"")) (stanzas ls)))
+    
+    return (trainDataset, testDataset)
+
+
   where
     stanzas []           = []
     stanzas (('#':_):ls) = stanzas ls
@@ -282,8 +303,13 @@ matchEdges (p1, p2) (n1@(_,_,pos1,m1,rel1),n2@(_,_,pos2,m2,rel2)) = checkPos (po
   where     
         checkRel p r = isNothing p || fromJust p == r
         checkMorpho q e = isNothing q || and (map (\m -> checkFeat m e) (fromJust q))
-        checkFeat (feat, Match val) m2 = (feat, val) `elem` m2
-        checkFeat (feat, Not val) m2 = (feat, val) `notElem` m2
+
+        checkFeat (feat, Match []) m2 = False
+        checkFeat (feat, Match (v:val)) m2 | (feat, v) `elem` m2 = True
+        checkFeat (feat, Match (v:val)) m2 | otherwise = checkFeat (feat, Match val) m2
+        checkFeat (feat, Not []) m2 = True 
+        checkFeat (feat, Not (v:val)) m2 | (feat, v) `elem` m2 = False
+        checkFeat (feat, Not (v:val)) m2 | otherwise = checkFeat (feat, Not val) m2
         checkPos pos p = isNothing pos || p `elem` (fromJust pos)
 
 getFun :: Ident -> [Ident] -> Term -> (Ident, Info)
