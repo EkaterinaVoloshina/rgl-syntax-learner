@@ -23,6 +23,7 @@ import GF.Grammar.Printer
 
 options =
   [ Option "v" [] (NoArg (\cfg->cfg{cfgVerbose=True})) "verbose output"
+  , Option [] ["size"] (ReqArg (\s cfg->cfg{cfgTrainSize=Just (read s)}) "number") "train size"
   , Option [] ["stopping"] (ReqArg (\s cfg->cfg{cfgSyntaxStopping=read s}) "number") "minimal accuracy"
   ]
 
@@ -30,7 +31,9 @@ options =
 learn cfg = do
     (cnc,gr) <- loadGrammar ("src" </> cfgLangName cfg </> cfgLangModuleFileName cfg "Lang" ++".gf")
     
-    trees <- fmap concat $ mapM (readCONLL cfg) (cfgTreebanks cfg)
+    trees <- case cfgTrainSize cfg of
+        Just n -> fmap (take n . concat) $ mapM (readCONLL cfg) (cfgTreebanks cfg)
+        Nothing -> fmap concat $ mapM (readCONLL cfg) (cfgTreebanks cfg)
 
     -- block of functions that handle CN type --
     (gr, adjCN, advCN, positA) <- learnCN cfg cnc gr noSmarts trees
@@ -111,34 +114,11 @@ learnCN cfg cnc gr noSmarts trees = do
 
     gr <- modifyCat cfg gr [("AP",ap_ty),("CN",cn_ty)]
 
-    let (CncFun _ f _ _) = snd $ head (snd (fromJust adjCN))
-        (L _ abs) = (fromJust f)
-        (R rs) = unpack abs
-
-        
-        RecType ats = a_ty
-        RecType nts = n_ty
-        ats' = Map.fromList (map (\(LIdent l, _, t) -> ((showRawIdent l), constructTable (findType l t) gr (toTitle (cfgIso3 cfg)))) ats)
-        nts' = Map.fromList (map (\(LIdent l, _, t) -> ((showRawIdent l), constructTable (findType l t) gr (toTitle (cfgIso3 cfg)))) nts)
-        args' = Map.fromList [("ap",ats'), ("cn", nts')]
-
-        res = map (evalTerm "cn" args') rs
+    print (eval gr cfg trees pattern1 adjCN)
+    print (eval gr cfg trees pattern2 advCN)
     
-
-    
-    print res
-    --print (head res)
-    --let (ids, patts) =  (last (head res))
-    -- look up pattern and add in morphology and return all pairs 
-    -- calculate accuracy and fscore
-    --print patts
     return (gr, adjCN, advCN, positA)
-    where 
-          
-          unpack (Abs _ _ abs) = unpack abs
-          unpack abs = abs
-
-          toTitle (c:cs) = toUpper c:cs
+    
         
 learnComplSlash cfg cnc gr noSmarts trees = do
     let name1 = identS "ComplSlash"
@@ -168,7 +148,7 @@ learnComplSlash cfg cnc gr noSmarts trees = do
     
 
     gr <- modifyCat cfg gr [("VPSlash",v_ty),("VP",vp_ty)]
- 
+    print (eval gr cfg trees pattern1 сomplSlash)
     return (gr, сomplSlash, advVP)
 
 learnPredVP cfg cnc gr noSmarts trees = do 
@@ -182,6 +162,7 @@ learnPredVP cfg cnc gr noSmarts trees = do
     fun <- learnPattern cfg cnc gr noSmarts patts name pattern
     let (_, cl_ty, _, fs) = combineOneTerms gr name fun Nothing np_p vp_p [idx np_p, idx vp_p]
     gr <- modifyCat cfg gr [("Cl", cl_ty)]
+    print (eval gr cfg trees pattern fs)
     return (gr, fs)
 
 learnSlashV2a cfg = Just ("Verb", [getFun (identS "SlashV2a") [v] (Vr v)])
@@ -198,6 +179,7 @@ learnAdAP cfg cnc gr snoSmarts trees = do
     let (_, patts) = unzip $ query trees pattern
     terms <- learnPattern cfg cnc gr noSmarts patts name pattern
     let (_, _, _, fun) = combineOneTerms gr name terms Nothing ada_p ap_p [idx ada_p, idx ap_p]
+    print (eval gr cfg trees pattern fun)
     return (gr, fun)
 
 --learnAdvAP lang cnc gr mapping noSmarts trees = do 
@@ -221,6 +203,7 @@ learnPrepNP cfg cnc gr noSmarts trees = do
             then modifyCat cfg gr [("Prep", extendTypeWithIsPre prep_ty)]
             else return gr
     -- print fun
+    print (eval gr cfg trees pattern fun)
     return (gr, fun)
 
 learnUseN cfg = Just ("Noun", [getFun (identS "UseN") [n] (Vr n)])
@@ -229,7 +212,7 @@ learnUseN cfg = Just ("Noun", [getFun (identS "UseN") [n] (Vr n)])
 
 learnDetCN cfg cnc gr noSmarts trees = do
     let pattern = [QueryPattern {pos= Nothing, rel=Nothing, morpho=Nothing, idx=identW, var_type=R [], lin_order=NA},
-                   QueryPattern {pos= Just ["DET"], rel = Nothing, morpho=Just [("PronType", Match "Art")], idx=identS "det", var_type=R [], lin_order=NA}]
+                   QueryPattern {pos= Just ["DET"], rel = Nothing, morpho=Just [("PronType", Match ["Art"])], idx=identS "det", var_type=R [], lin_order=NA}]
         (trees', patts) = unzip $ query trees pattern
         artPatt = nub $ map (\(x@(_,lemma1,pos,m1,_), y@(_,lemma2,_,m2,_)) -> if pos == "DET" then (lemma1, m1) else (lemma2, m2)) patts
 

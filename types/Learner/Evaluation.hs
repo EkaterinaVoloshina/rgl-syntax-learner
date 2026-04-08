@@ -1,4 +1,4 @@
-module Learner.Evaluation(evalToUD, evalTerm, compareTrees, compareTree, equalTrees,
+module Learner.Evaluation(eval, evalToUD, evalTerm, compareTrees, compareTree, equalTrees,
 interpretFun, interpret,constructTable, lookupUDTag, lookupRecord, lookupValues, getParamValues, findType) where
 
 import qualified Data.Map as Map
@@ -13,7 +13,12 @@ import Data.List
 import GF.Data.Operations
 import GF.Infra.Option
 import GF.Grammar.Printer
+import Data.Map.Strict (fromListWith, toList)
+import Data.List (sort)
+import Data.Function(on)
 import Learner.Config
+import Learner.CodeGen
+import Data.Char (toUpper)
 
 type UDTag = [(String, String)]
 type GFTag = String
@@ -24,6 +29,56 @@ data TypeTable = Tab GFTag UDTag [TypeTable] | Node GFTag UDTag | EmptyNode
 type Condition = [GFTag]
 data AnnotatedTypeTable = ATab GFTag UDTag [AnnotatedTypeTable] | ANode GFTag UDTag Bool Condition | AEmptyNode
     deriving (Show, Eq)
+
+--getScores = (recall, precision, fscore)
+    -- where 
+        -- recall patts new_patts 
+        -- precision patts new_patts = 
+        -- fscore = 
+
+
+eval gr cfg trees patts Nothing = -1
+eval gr cfg trees patts (Just fun) = (fromIntegral (length res') / fromIntegral (length res))
+    where 
+        (CncFun _ f _ _) = snd $ head (snd fun)
+        (L _ abs) = (fromJust f)
+        (R rs) = unpack abs
+        headType = showIdent (idx (head patts)) 
+        getMapTypes (RecType ts) = Map.fromList (map (\(LIdent l, _, t) -> ((showRawIdent l), constructTable (findType l t) gr (toTitle (cfgIso3 cfg)))) ts)
+        
+        args' = Map.fromList (map (\p -> (showIdent (idx p), getMapTypes (var_type p))) patts)
+
+        result = concatMap (\x -> map (\y -> (fst x, y)) (snd x )) (concat (map (evalTerm headType args') rs))
+        patts' = map (getUpdatedPatterns patts headType) result
+    
+        (_, res) = unzip $ query trees patts
+        res' = nub $ concatMap (\p -> snd (unzip $ query trees p)) patts'
+    
+        unpack (Abs _ _ abs) = unpack abs
+        unpack abs = abs
+
+        toTitle (c:cs) = toUpper c:cs
+
+-- TODO: non binary
+getUpdatedPatterns patts head  ((b1, b2), (p1, p2)) = case head == b1 of
+    True -> [update b1 (Just b2) (toFeat p1) (findPattern b1 patts), update b2 Nothing (toFeat p2) (findPattern b2 patts)]
+    _ ->    [update b2 Nothing (toFeat p2) (findPattern b2 patts), update b1 (Just b2) (toFeat p1) (findPattern b1 patts)]
+    where 
+            update b (Just b2) p1 p2 | isJust (morpho p2) = p2 {morpho = Just (fromJust (morpho p2) ++  p1), lin_order = Before b2}
+            update b (Just b2) p1 p2 | isNothing (morpho p2) = p2 {morpho = Just p1, lin_order = Before b2}
+            update b Nothing p1 p2 | isJust (morpho p2)= p2 {morpho =Just (fromJust (morpho p2) ++  p1)}
+            update b Nothing p1 p2 | isNothing (morpho p2) = p2 {morpho = Just p1}
+
+            findPattern b []  = QueryPattern {morpho = Nothing}
+            findPattern b (patt:patts) | idx patt == identS b = patt
+            findPattern b (patt:patts) | otherwise = findPattern b patts
+
+            toFeat x = map (\(k, y) -> (k, Match y)) (groupTuples (filter (/=("", "")) x))
+            groupTuples tuples = [(k, sort v) | (k, v) <- grouped tuples]
+            grouped tuples = toList $ fromListWith (++) [(k, [v]) | (k, v) <- tuples]
+
+            mapFst f (a, b) = (f a, b)
+
 
 compareTrees [] = []
 compareTrees (x:xs) = (x':compareTrees ys')
@@ -52,8 +107,9 @@ evalToUD (AEmptyNode) = []
 
 evalTerm t args (LIdent ident, (_, f)) = map getPatts res
     where
+        
         res = interpretFun args (fromJust (Map.lookup (showRawIdent ident) (fromJust (Map.lookup t args)))) [] f
-        getPatts ((base1, arg1), (base2, arg2)) = ((base1, base2), (concat [contrast x y | x <- getUD arg1, y <- getUD arg2]))
+        getPatts ((base1, arg1), (base2, arg2)) = ((base1, base2), concat [contrast x y | x <- getUD arg1, y <- getUD arg2])
         getUD = concatMap evalToUD 
 
 contrast (tags1, cond1) (tags2, cond2) | and check1 && and check2 = [(tags1 ++ concat add2, tags2 ++ concat add1)]
