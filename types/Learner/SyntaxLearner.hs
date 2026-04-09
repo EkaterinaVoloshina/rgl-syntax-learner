@@ -11,7 +11,7 @@ import GF.Text.Pretty hiding (empty)
 import GF.Grammar.Grammar hiding (Rule(..))
 import Data.Char (toUpper,toLower)
 import Data.Maybe
-import GF.Infra.Ident 
+import GF.Infra.Ident
 import GF.Grammar.Lookup
 import GF.Grammar.Lockfield
 import GF.Grammar.Macros
@@ -25,8 +25,8 @@ import GF.Grammar.Printer
 -- add output folder
 options =
   [ Option "v" [] (NoArg (\cfg->cfg{cfgVerbose=True})) "verbose output"
-  , Option [] ["output"] (ReqArg (\s cfg->cfg{cfgOutputFolder=read s}) "string") "output folder"
-  , Option [] ["results"] (ReqArg (\s cfg->cfg{cfgResultsFolder=read s}) "string") "results folder"
+  , Option [] ["output"] (ReqArg (\s cfg->cfg{cfgOutputFolder=s}) "DIR") "output folder"
+  , Option [] ["results"] (ReqArg (\s cfg->cfg{cfgResultsFolder=s}) "DIR") "results folder"
   , Option [] ["size"] (ReqArg (\s cfg->cfg{cfgTrainSize=Just (read s)}) "number") "train size"
   , Option [] ["stopping"] (ReqArg (\s cfg->cfg{cfgSyntaxStopping=read s}) "number") "minimal accuracy"
   , Option [] ["split"] (ReqArg (\s cfg->cfg{cfgSplit=read s}) "number") "train/test split ration"
@@ -36,10 +36,10 @@ options =
 learn cfg = do
     (cnc,gr) <- loadGrammar ("src" </> cfgLangName cfg </> cfgLangModuleFileName cfg "Lang" ++".gf")
 
-    (train, test) <- unzip <$> mapM (readCONLL cfg) (cfgTreebanks cfg)
+    (train, test) <- mapAndUnzipM (readCONLL cfg) (cfgTreebanks cfg)
     let (train', test') = (concat train, concat test)
     let trees = maybe (train', test') (\n -> (take n train', test')) (cfgTrainSize cfg)
-    
+
     let res = []
     -- block of functions that handle CN type --
     (gr, adjCN, advCN, positA, res) <- learnCN cfg cnc gr noSmarts trees res
@@ -54,7 +54,7 @@ learn cfg = do
 
     (gr, detCN, np) <- learnDetCN cfg cnc gr noSmarts trees res
     (gr, prepNP, res) <- learnPrepNP cfg cnc gr noSmarts trees res
-    
+
     -- block of functions that handle VP type -- 
     (gr, complSlash, advVP, res) <- learnComplSlash cfg cnc gr noSmarts trees res
     (gr, predVP, res) <- learnPredVP cfg cnc gr noSmarts trees res
@@ -74,6 +74,7 @@ learn cfg = do
     cat_mo     <- lookupModule gr cat_mn
     grammar_mo <- lookupModule gr grammar_mn
 
+    
     grammar_mo <-
       foldM (\lang_mo (m, funs) ->
                  do let mn = cfgLangModuleName cfg m
@@ -85,12 +86,12 @@ learn cfg = do
                       Just _  -> return grammar_mo)
             grammar_mo
             ((Map.toList . Map.fromListWith (++))
-                  (catMaybes ([positA, useN, adAP, adjCN, detCN, predVP, complSlash, slashV2a, prepNP, advCN, advVP])))
-
+                  (catMaybes [positA, useN, adAP, adjCN, detCN, predVP, complSlash, slashV2a, prepNP, advCN, advVP]))
+    
     writeFile (cfgOutputFolder cfg </> cfgLangName cfg </> cfgLangModuleFileName cfg "Grammar" ++ ".gf") (show (ppModule Unqualified (grammar_mn,grammar_mo)))
     writeFile (cfgOutputFolder cfg </> cfgLangName cfg </> cfgLangModuleFileName cfg "Cat" ++ ".gf") (show (ppModule Unqualified (cat_mn,cat_mo)))
 
- 
+
 learnCN cfg cnc gr noSmarts trees res = do
     let (train, test) = trees
 
@@ -130,10 +131,10 @@ learnCN cfg cnc gr noSmarts trees res = do
 
     let results = [(name1, eval gr cfg test pattern1 adjCN),
                    (name2, eval gr cfg test pattern2 advCN)] ++ res
-    
+
     return (gr, adjCN, advCN, positA, results)
-    
-        
+
+
 learnComplSlash cfg cnc gr noSmarts trees res = do
     let (train, test) = trees
     let name1 = identS "ComplSlash"
@@ -144,17 +145,17 @@ learnComplSlash cfg cnc gr noSmarts trees res = do
         pattern1 = [v_p,np_p]
     let (_, patts) = unzip $ query train pattern1
     terms1 <- learnPattern cfg cnc gr noSmarts patts name1 pattern1
-    
+
     let name2 = identS "AdvVP"
     adv_ty <- lookupResDef gr (cnc,identS "Adv")
-    
-    let 
+
+    let
         --v_p  = QueryPattern {pos=Just ["VERB"], rel=Nothing, morpho=Nothing, idx=identS "vps", var_type=v_ty, lin_order=NA}
         adv_p = QueryPattern {pos=Just ["ADP"], rel = Just "udep", morpho=Nothing, idx=identS "adv", var_type=adv_ty, lin_order=NA}
         pattern2 = [v_p,adv_p]
     let (_, patts) = unzip $ query train pattern2
     terms2 <- learnPattern cfg cnc gr noSmarts patts name2 pattern2
-    
+
 
     let (_, vp_ty) = combineTypes (terms1++terms2) [np_p] v_p
         (_, сomplSlash) = combineTerms gr name1 terms1 Nothing v_p vp_ty [idx v_p,idx np_p]
@@ -166,7 +167,7 @@ learnComplSlash cfg cnc gr noSmarts trees res = do
     return (gr, сomplSlash, advVP, results)
 
 learnPredVP cfg cnc gr noSmarts trees res = do
-    let (train, test) = trees 
+    let (train, test) = trees
     let name = identS "PredVP"
     np_ty <- lookupResDef gr (cnc,identS "NP")
     vp_ty <- lookupResDef gr (cnc,identS "VP")
@@ -177,7 +178,7 @@ learnPredVP cfg cnc gr noSmarts trees res = do
     fun <- learnPattern cfg cnc gr noSmarts patts name pattern
     let (_, cl_ty, _, fs) = combineOneTerms gr name fun Nothing np_p vp_p [idx np_p, idx vp_p]
     gr <- modifyCat cfg gr [("Cl", cl_ty)]
-    
+
     let results = ((name, eval gr cfg test pattern fs):res)
     return (gr, fs, results)
 
@@ -185,7 +186,7 @@ learnSlashV2a cfg = Just ("Verb", [getFun (identS "SlashV2a") [v] (Vr v)])
   where
     v = identS "v"
 
-learnAdAP cfg cnc gr snoSmarts trees res = do 
+learnAdAP cfg cnc gr snoSmarts trees res = do
     let (train, test) = trees
     let name = identS "AdAP"
     adv_ty <- lookupResDef gr (cnc,identS "Adv")
@@ -220,7 +221,7 @@ learnPrepNP cfg cnc gr noSmarts trees res = do
     gr <- if used_isPre
             then modifyCat cfg gr [("Prep", extendTypeWithIsPre prep_ty)]
             else return gr
-    
+
     let results = ((name, eval gr cfg test pattern fun):res)
     return (gr, fun, results)
 
