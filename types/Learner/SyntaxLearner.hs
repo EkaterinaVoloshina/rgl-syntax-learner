@@ -22,6 +22,7 @@ import GF.Infra.Option
 import GF.Grammar.Printer
 
 
+
 -- add output folder
 options =
   [ Option "v" [] (NoArg (\cfg->cfg{cfgVerbose=True})) "verbose output"
@@ -29,7 +30,7 @@ options =
   , Option [] ["results"] (ReqArg (\s cfg->cfg{cfgResultsFolder=s}) "DIR") "results folder"
   , Option [] ["size"] (ReqArg (\s cfg->cfg{cfgTrainSize=Just (read s)}) "number") "train size"
   , Option [] ["stopping"] (ReqArg (\s cfg->cfg{cfgSyntaxStopping=read s}) "number") "minimal accuracy"
-  , Option [] ["split"] (ReqArg (\s cfg->cfg{cfgSplit=read s}) "number") "train/test split ration"
+  , Option [] ["split"] (ReqArg (\s cfg->cfg{cfgSplit=read s}) "number") "train/test split ratio"
   ]
 
 -- | main function to learn different parts of a grammar
@@ -74,7 +75,8 @@ learn cfg = do
     cat_mo     <- lookupModule gr cat_mn
     grammar_mo <- lookupModule gr grammar_mn
 
-    
+    cat_mo' <- (if OSimple (moduleNameS "Prelude") `notElem` mopens cat_mo then return (cat_mo {mopens=OSimple (moduleNameS "Prelude"):mopens cat_mo}) else return cat_mo)
+
     grammar_mo <-
       foldM (\lang_mo (m, funs) ->
                  do let mn = cfgLangModuleName cfg m
@@ -87,9 +89,9 @@ learn cfg = do
             grammar_mo
             ((Map.toList . Map.fromListWith (++))
                   (catMaybes [positA, useN, adAP, adjCN, detCN, predVP, complSlash, slashV2a, prepNP, advCN, advVP]))
-    
+
     writeFile (cfgOutputFolder cfg </> cfgLangName cfg </> cfgLangModuleFileName cfg "Grammar" ++ ".gf") (show (ppModule Unqualified (grammar_mn,grammar_mo)))
-    writeFile (cfgOutputFolder cfg </> cfgLangName cfg </> cfgLangModuleFileName cfg "Cat" ++ ".gf") (show (ppModule Unqualified (cat_mn,cat_mo)))
+    writeFile (cfgOutputFolder cfg </> cfgLangName cfg </> cfgLangModuleFileName cfg "Cat" ++ ".gf") (show (ppModule Unqualified (cat_mn,cat_mo')))
 
 
 learnCN cfg cnc gr noSmarts trees res = do
@@ -97,7 +99,6 @@ learnCN cfg cnc gr noSmarts trees res = do
 
     n_ty <- lookupResDef gr (cnc,identS "N")
     let n_p = QueryPattern {pos=Just ["NOUN"], rel=Nothing, morpho=Nothing, idx=identS "cn", var_type=n_ty, lin_order=NA}
-
 
     -- find AdjCN structures
     let name1 = identS "AdjCN"
@@ -216,13 +217,17 @@ learnPrepNP cfg cnc gr noSmarts trees res = do
         np_p   = QueryPattern {pos= Just ["NOUN"], rel=Just "comp:obj", morpho=Nothing, idx=identS "np", var_type=np_ty, lin_order=NA}
         pattern = [prep_p, np_p]
     let (trees', patts1) = unzip $ query train pattern
+
     terms <- learnPattern cfg cnc gr noSmarts patts1 name pattern
+
+    print terms
     let (_, _, used_isPre, fun) = combineOneTerms gr name terms (Just (idx prep_p)) prep_p np_p{var_type=defLinType} [idx prep_p, idx np_p]
     gr <- if used_isPre
             then modifyCat cfg gr [("Prep", extendTypeWithIsPre prep_ty)]
             else return gr
 
-    let results = ((name, eval gr cfg test pattern fun):res)
+
+    let results = (name, eval gr cfg test pattern fun):res
     return (gr, fun, results)
 
 learnUseN cfg = Just ("Noun", [getFun (identS "UseN") [n] (Vr n)])
@@ -236,15 +241,18 @@ learnDetCN cfg cnc gr noSmarts trees res = do
         (trees', patts) = unzip $ query train pattern
         artPatt = nub $ map (\(x@(_,lemma1,pos,m1,_), y@(_,lemma2,_,m2,_)) -> if pos == "DET" then (lemma1, m1) else (lemma2, m2)) patts
 
-        allFeats = nub $ (map fst (concat (map (\(Tag _ f _ _ _ _) -> f) all_tags)))
+        allFeats = nub $ map fst (concatMap (\(Tag _ f _ _ _ _) -> f) all_tags)
 
-        feats = filter (\x -> x `elem` allFeats) (nub $ concatMap (\(x, y) -> map fst y) artPatt)
+        feats = filter (`elem` allFeats) (nub $ concatMap (\(x, y) -> map fst y) artPatt)
 
     let (numSg, numPl, numType) = createNum cfg gr
         (indef, def, quant_ty) = createArt cfg gr
         (dQuant, det_ty) = detQuant numType quant_ty
 
+    print numSg
+    print numType
     let name = identS "DetCN"
+
     cn_ty <- lookupResDef gr (cnc,identS "CN")
     let cn_p  = QueryPattern {pos= Just ["NOUN"], rel=Nothing, morpho=Nothing, idx=identS "cn", var_type=cn_ty, lin_order=NA}
         det_p = QueryPattern {pos= Just ["DET"], rel=Just "det", morpho=Nothing, idx=identS "det", var_type=det_ty, lin_order=NA}
@@ -256,15 +264,16 @@ learnDetCN cfg cnc gr noSmarts trees res = do
 
     let (_,np_ty,_,Just (_,[detCN])) = combineOneTerms gr name terms Nothing det_p cn_p [idx det_p, idx cn_p]
 
+    print terms
     let lincats = [("NP", np_ty), ("Quant", quant_ty), ("Num", numType), ("Det", det_ty)]
     gr <- modifyCat cfg gr lincats
 
-    return $ (gr, Just ("Noun", [detCN, dQuant, def, indef, numSg, numPl]), [])
+    return (gr, Just ("Noun", [detCN, dQuant, def, indef, numSg, numPl]), [])
 
 
 modifyCat cfg gr lincats = do
   mo <- lookupModule gr cat_mn
-  let lincats' = Map.toList (jments mo) ++ (map (\(x, y) -> (identS x, CncCat (Just (L NoLoc y)) Nothing Nothing Nothing Nothing)) lincats)
+  let lincats' = Map.toList (jments mo) ++ map (\(x, y) -> (identS x, CncCat (Just (L NoLoc y)) Nothing Nothing Nothing Nothing)) lincats
   return gr{moduleMap=Map.insert cat_mn mo{jments = Map.fromList lincats'} (moduleMap gr)}
   where
     cat_mn = cfgLangModuleName cfg "Cat"

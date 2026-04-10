@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use camelCase" #-}
 module Learner.Config(module Learner.Config, Ident, identS, rawIdentS) where
 
 import GF.Infra.Ident
@@ -148,7 +150,7 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "future-perfect"  []                         "future_perf"   "FuturePerfect"   "Tense"
   ,tag "imperfective"    [("Aspect","Imp")]           "imperf"        "Imperfective"    "Aspect"
   ,tag "perfective"      [("Aspect","Perf")]          "perf"          "Perfective"      "Aspect"
-  ,tag "continuative"    []                         "cont"          "Cont"              "Aspect"
+  ,tag "continuative"    []                           "cont"          "Cont"              "Aspect"
   ,tag "indicative"      [("Mood","Ind")]             "indicative"    "Indicative"      "Mood"
   ,tag "imperative"      [("Mood","Imp")]             "imperative"    "Imperative"      "Mood"
   ,tag "conditional"     [("Mood","Cnd")]             "conditional"   "Cond"            "Mood"
@@ -171,7 +173,7 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "genitive"        [("Case","Gen")]             "genitive"      "Gen"             "Case"
   ,tag "locative"        [("Case","Loc")]             "locative"      "Loc"             "Case"
   ,tag "terminative"     [("Case","Trm")]             "terminative"   "Term"            "Case"
-  ,tag "ablative"        [("Case","Abl")]             "ablative"      "Abl"             "Case"
+  ,tag "ablative"        [("Case","Abl")]             "ablative"      "Ablat"             "Case"
   ,tag "instrumental"    [("Case","Ins")]             "instrumental"  "Instr"           "Case"
   ,tag "comitative"      [("Case","Com")]             "comitative"    "Com"             "Case"
   ,tag "abessive"        [("Case","Abe")]             "abessive"      "Abes"            "Case"
@@ -187,8 +189,10 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "partitive"       [("Case","Par")]             "partitive"     "Par"             "Case"
   ,tag "illative"        [("Case","Ill")]             "illative"      "Ill"             "Case"
   ,tag "oblique"         [("Case","Obl")]             "oblique"       "Obl"             "Case"
-  ,tag "vocative"        [("Case","Voc")]             "vocative"      "Voc"             "Case"
+  ,tag "vocative"        [("Case","Voc")]             "voc"      "Voc"             "Case"
   ,tag "possessive"      [("Case","Poss")]            "possessive"    "Poss"            "Case"
+  ,tag "def_nom"      [("Case","Nom"), ("Definite", "Def")]  "def_nom"    "Def_Nom"            "Case"
+  ,tag "def_dat"      [("Case","Dat"), ("Definite", "Def")]  "def_dat"    "Def_Dat"            "Case"
   ,tag "singular"        [("Number","Sing")]          "singular"      "Sg"              "Number"
   ,tag "plural"          [("Number","Plur")]          "plural"        "Pl"              "Number"
   ,tag "dual"            [("Number","Dual")]          "dual"          "Dl"              "Number"

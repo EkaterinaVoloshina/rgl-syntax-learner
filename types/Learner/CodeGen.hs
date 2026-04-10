@@ -49,7 +49,7 @@ data Order = NA | Before String | After String deriving (Show)
 
 data QueryPattern = QueryPattern {
     pos :: Maybe [String],
-    rel :: Maybe String, 
+    rel :: Maybe String,
     morpho :: Maybe [Feat],
     idx :: Ident,
     var_type :: Type,
@@ -57,22 +57,20 @@ data QueryPattern = QueryPattern {
 } deriving (Show)
 
 --query :: Tree Node -> ((String, Maybe String), (String, Maybe String)) -> IO [(Node, Node)]
-query trees fun = do 
+query trees fun = do
   t <- trees
   let p = pairs fun []
-  r <- res (head p) t
-  -- fun to tuples 
- 
-  return r
-  where 
-    pairs (a:b:[])   res = res ++ [(a,b)]
+  -- fun to tuples
+  res (head p) t
+  where
+    pairs [a,b]      res = res ++ [(a,b)]
     pairs (a:b:rest) res = pairs rest (res ++ [(a,b)])
 
     res patt t = filter (\(t, e) -> matchEdges patt e) (edges t)
 
-  
-    
-    
+
+
+
 learnPattern cfg cnc gr smarts pat name pattern = do
 
     putStrLn ("== " ++ showIdent name ++ " ==" )
@@ -82,17 +80,17 @@ learnPattern cfg cnc gr smarts pat name pattern = do
         patts = do  -- query edges matching AdjCN
           (n1, n2) <- pat
           return [(n1,Vr cn,n_ty),(n2,Vr ap,a_ty)]
-        
+
         cctxt = CodeContext [(Vr ap,a_ty),(Vr cn,n_ty)] -- argument types
                             patts                       -- matching patterns
                             smarts
     -- putStrLn ("Patterns: ")
     -- mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
 
-    
+
     let res = fmap (Map.fromListWith (++)) $ runGenM $ do
                 patt <- anyOf (patterns cctxt)
-                
+
                 inh <- runGenM $ do
                           ((_,_,_,morpho,_),t,ty) <- anyOf patt
                           findInh gr cctxt morpho t ty
@@ -101,7 +99,7 @@ learnPattern cfg cnc gr smarts pat name pattern = do
                 let str = foldr (\(_,t1) t2 -> case t2 of {Empty -> t1; t2 -> C t1 t2}) Empty (sortOn fst ts)
 
                 return ((str,length vs,length inh),[(reverse vs,inh)])
-    
+
     m <- case res of
       Ok m    -> return m
       Bad msg -> fail msg
@@ -142,10 +140,10 @@ learnPattern cfg cnc gr smarts pat name pattern = do
                             print (pp (raw t))
                             putStrLn ""
                           return (t, freq)
-                          
+
                     | otherwise -> do
                           cross_breed types dim_dataset dataset t0 subst0 rest
-                  [] -> do 
+                  [] -> do
                     return (Empty,0)
 
     return (filter (\(t,_) -> t /= Empty) terms)
@@ -162,7 +160,7 @@ learnPattern cfg cnc gr smarts pat name pattern = do
                    in (v_ty:vs',inh')
 
     decisionTree2term (Leaf t _) = t
-    decisionTree2term (Decision (TermName t f) _ children) =   
+    decisionTree2term (Decision (TermName t f) _ children) =
       let pairs = [(f k, decisionTree2term dt) | (k,dt) <- Map.toList children]
           (xs,ys) = partition (uncurry (==)) pairs
           (us,vs) = partitionEithers (map fun_pairs pairs)
@@ -179,7 +177,7 @@ learnPattern cfg cnc gr smarts pat name pattern = do
                     (xs,[]) -> t
                     (xs,ys) -> let x = identS "x"
                                in S (T TRaw (cs0++[(PV x,Vr x)])) t
-      
+
       where
         term2patt :: Term -> Err Patt
         term2patt trm = do
@@ -258,25 +256,25 @@ readCONLL cfg treebank = do
   let files = filter (isSuffixOf ".conllu") fs
   let test = filter (isSuffixOf "test.conllu") files
   let train = filter (\f -> f `notElem` test) files
-  if null train || null test then do 
+  if null train || null test then do
     dataset <- fmap concat $ forM fs $ \f -> do
      if takeExtension f == ".conllu"
-       then do 
+       then do
           ls <- fmap lines $ readFile (fpath </> f)
           return ((map (toTree "0" (0,"root","",[],"")) (stanzas ls)))
        else return []
     if cfgSplit cfg == 1 then do return (dataset, dataset)
-    else do 
+    else do
       let trainRatio = round ((cfgSplit cfg) * fromIntegral (length dataset))
       return (take trainRatio dataset, drop trainRatio dataset)
-  else do 
+  else do
     trainDataset <- fmap concat $ forM train $ \f -> do
       ls <- fmap lines $ readFile (fpath </> f)
       return ((map (toTree "0" (0,"root","",[],"")) (stanzas ls)))
     testDataset <- fmap concat $ forM test $ \f -> do
       ls <- fmap lines $ readFile (fpath </> f)
       return ((map (toTree "0" (0,"root","",[],"")) (stanzas ls)))
-    
+
     return (trainDataset, testDataset)
 
 
@@ -289,7 +287,7 @@ readCONLL cfg treebank = do
                              (s:ss) -> (split '\t' l:s):ss
 
     toTree id lbl stanza =
-      Node lbl [toTree (l!!0) (read(l!!0),l!!1,l!!3,toAttrs (l!!5),l!!7) stanza | l <- stanza, id==l!!6]
+      Node lbl [toTree (l!!0) (read (l!!0),l!!1,l!!3,toAttrs (l!!5),l!!7) stanza | l <- stanza, id==l!!6]
 
     toAttrs "_" = []
     toAttrs s   = map toAttr (split '|' s)
@@ -298,25 +296,25 @@ readCONLL cfg treebank = do
           case break (=='=') s of
             (x,'=':y) -> (x,y)
 
-matchEdges (p1, p2) (n1@(_,_,pos1,m1,rel1),n2@(_,_,pos2,m2,rel2)) = checkPos (pos p1) pos1 && 
+matchEdges (p1, p2) (n1@(_,_,pos1,m1,rel1),n2@(_,_,pos2,m2,rel2)) = checkPos (pos p1) pos1 &&
                     checkPos (pos p2) pos2 && checkRel (rel p1) rel1 && checkRel (rel p2) rel2 && checkMorpho (morpho p1) m1 && checkMorpho (morpho p2) m2
-  where     
+  where
         checkRel p r = isNothing p || fromJust p == r
         checkMorpho q e = isNothing q || and (map (\m -> checkFeat m e) (fromJust q))
 
         checkFeat (feat, Match []) m2 = False
         checkFeat (feat, Match (v:val)) m2 | (feat, v) `elem` m2 = True
         checkFeat (feat, Match (v:val)) m2 | otherwise = checkFeat (feat, Match val) m2
-        checkFeat (feat, Not []) m2 = True 
+        checkFeat (feat, Not []) m2 = True
         checkFeat (feat, Not (v:val)) m2 | (feat, v) `elem` m2 = False
         checkFeat (feat, Not (v:val)) m2 | otherwise = checkFeat (feat, Not val) m2
         checkPos pos p = isNothing pos || p `elem` (fromJust pos)
 
 getFun :: Ident -> [Ident] -> Term -> (Ident, Info)
 getFun name args f = (name, CncFun (Nothing) (Just (L NoLoc (getArgs args f))) Nothing Nothing)
-  where 
-    getArgs [] f = f 
-    getArgs (arg:args) f = Abs Explicit arg (getArgs args f) 
+  where
+    getArgs [] f = f
+    getArgs (arg:args) f = Abs Explicit arg (getArgs args f)
 
 getModule cfg abs_mn jments =
    ModInfo
@@ -388,8 +386,8 @@ detQuant (RecType num) (RecType art) =
 getOneField lbl arg = (lbl, (Nothing, P (Vr arg) lbl))
 
 -- helper functions
-unionPatts (patts1, p1) (patts2, p2) = filter (\p -> (getPosition p p2) `elem` patts1') patts2 
-    where 
+unionPatts (patts1, p1) (patts2, p2) = filter (\p -> (getPosition p p2) `elem` patts1') patts2
+    where
         getPosition patt 0 = fst patt
         getPosition patt 1 = snd patt
 
@@ -495,7 +493,7 @@ combineTerms gr funName ts mb_var_isPre n_p cn_ty argNames =
              (P (Vr var_isPre) cIsPre))
           where
             getPreOrPost o def
-              | o !! 0 == var_isPre = (PP (cPrelude, cTrue)  [], def)
+              | head o == var_isPre = (PP (cPrelude, cTrue)  [], def)
               | otherwise           = (PP (cPrelude, cFalse) [], def)
 
     normalizeTbl ty t = reorderTables [] t
@@ -617,7 +615,7 @@ generateTerm gr env lbls (Sort s)
                         _     -> return (C t1 t2)
 generateTerm gr env lbls ty0 = select env
   where
-    select []           = 
+    select []           =
       case allParamValues gr ty0 of
         Ok (t:ts) -> t
         _         -> FV []
@@ -630,7 +628,7 @@ firstValue gr env lbls t (Table arg res) ty0 = do
   t' <- select env
   firstValue gr env lbls (S t t') res ty0
   where
-    select []           = 
+    select []           =
       case allParamValues gr arg of
         Ok (t:ts) -> return t
         _         -> return (FV [])
