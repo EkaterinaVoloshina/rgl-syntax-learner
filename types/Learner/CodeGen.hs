@@ -340,8 +340,8 @@ createPlaceholder cfg gr lbl con_typ fun1 con1 fun2 con2 =
                            then []
                            else take 1 [(lbl, (Nothing, value))
                                              | value <- values
-                                             , let (f,xs) = appForm value
-                                             , f == QC (cRes,con)]))
+                                             , let (QC (_,f),xs) = appForm value
+                                             , f == con]))
 
     q_con_typ = (cRes, con_typ)
     typ = RecType ( (theLinLabel, [], Sort cStr)
