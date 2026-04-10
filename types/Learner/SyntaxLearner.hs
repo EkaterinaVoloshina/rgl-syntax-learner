@@ -162,10 +162,12 @@ learnComplSlash cfg cnc gr noSmarts trees res = do
         (_, сomplSlash) = combineTerms gr name1 terms1 Nothing v_p vp_ty [idx v_p,idx np_p]
         (_, advVP) = combineTerms gr name2 terms2 Nothing v_p vp_ty [idx v_p,idx adv_p]
 
-    gr <- modifyCat cfg gr [("VPSlash",v_ty),("VP",vp_ty)]
+    gr <- modifyCat cfg gr [("VPSlash",unLock v_ty),("VP",vp_ty)]
     let results = [(name1, eval gr cfg test pattern1 сomplSlash),
                     (name2, eval gr cfg test pattern2 advVP)] ++ res
     return (gr, сomplSlash, advVP, results)
+    where
+      unLock (RecType ltys) = RecType [x | x@(l,xs,ty) <- ltys, isNothing (isLockLabel l)]
 
 learnPredVP cfg cnc gr noSmarts trees res = do
     let (train, test) = trees
