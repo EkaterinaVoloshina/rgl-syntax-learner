@@ -613,12 +613,13 @@ generateTerm gr env lbls (Sort s)
                       case t2 of
                         Empty -> return t1
                         _     -> return (C t1 t2)
-generateTerm gr env lbls ty0 = select env
+generateTerm gr env lbls ty0@(QC c) = select env
   where
     select []           =
-      case allParamValues gr ty0 of
-        Ok (t:ts) -> t
-        _         -> FV []
+      case lookupOrigInfo gr c of
+        Ok (mn,ResParam (Just (L _ ((fn,ctxt):_))) _)
+            -> foldl (\t (_,_,ty) -> App t (generateTerm gr env lbls ty)) (QC (mn,fn)) ctxt
+        _   -> FV []
     select ((t,ty):env) =
       case firstValue gr env [] t ty ty0 of
         Just t  -> t
