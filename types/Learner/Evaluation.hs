@@ -70,7 +70,13 @@ getUpdatedPatterns patts head  ((b1, b2), (p1, p2)) = case head == b1 of
             update b Nothing p1 p2 | isJust (morpho p2)= p2 {morpho =Just (fromJust (morpho p2) ++  p1)}
             update b Nothing p1 p2 | isNothing (morpho p2) = p2 {morpho = Just p1}
 
-            findPattern b []  = QueryPattern {morpho = Nothing}
+            findPattern b []  = QueryPattern { pos = Nothing
+                                             , rel = Nothing
+                                             , morpho = Nothing
+                                             , idx = identW
+                                             , var_type = Meta 0
+                                             , lin_order = NA
+                                             }
             findPattern b (patt:patts) | idx patt == identS b = patt
             findPattern b (patt:patts) | otherwise = findPattern b patts
 
