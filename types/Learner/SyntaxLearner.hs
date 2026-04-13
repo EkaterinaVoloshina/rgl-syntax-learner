@@ -222,7 +222,6 @@ learnPrepNP cfg cnc gr noSmarts trees res = do
 
     terms <- learnPattern cfg cnc gr noSmarts patts1 name pattern
 
-    print terms
     let (_, _, used_isPre, fun) = combineOneTerms gr name terms (Just (idx prep_p)) prep_p np_p{var_type=defLinType} [idx prep_p, idx np_p]
     gr <- if used_isPre
             then modifyCat cfg gr [("Prep", extendTypeWithIsPre prep_ty)]
