@@ -157,7 +157,6 @@ learnComplSlash cfg cnc gr noSmarts trees res = do
     let (_, patts) = unzip $ query train pattern2
     terms2 <- learnPattern cfg cnc gr noSmarts patts name2 pattern2
 
-
     let (_, vp_ty) = combineTypes (terms1++terms2) [np_p] v_p
         (_, сomplSlash) = combineTerms gr name1 terms1 Nothing v_p vp_ty [idx v_p,idx np_p]
         (_, advVP) = combineTerms gr name2 terms2 Nothing v_p vp_ty [idx v_p,idx adv_p]
@@ -246,27 +245,35 @@ learnDetCN cfg cnc gr noSmarts trees res = do
 
         feats = filter (`elem` allFeats) (nub $ concatMap (\(x, y) -> map fst y) artPatt)
 
-    let (numSg, numPl, numType) = createNum cfg gr
+    let (numSg, numPl, num_ty) = createNum cfg gr
         (indef, def, quant_ty) = createArt cfg gr
-        (dQuant, det_ty) = detQuant numType quant_ty
+        (dQuant, det_ty) = detQuant num_ty quant_ty
+
+    cn_ty <- lookupResDef gr (cnc,identS "CN")
+    let np_ty = mkNPType cn_ty
 
     let name = identS "DetCN"
 
-    cn_ty <- lookupResDef gr (cnc,identS "CN")
     let cn_p  = QueryPattern {pos= Just ["NOUN"], rel=Nothing, morpho=Nothing, idx=identS "cn", var_type=cn_ty, lin_order=NA}
         det_p = QueryPattern {pos= Just ["DET"], rel=Just "det", morpho=Nothing, idx=identS "det", var_type=det_ty, lin_order=NA}
         pattern = [cn_p, det_p]
-    let (trees', patts0) = unzip $ query train pattern
-        patts = [(n_patt,(id2,lemma2,pos2,patch morph1 morph2,rel2)) | (n_patt@(id1,lemma1,pos1,morph1,rel1),(id2,lemma2,pos2,morph2,rel2)) <- patts0]
-        patch morph1 morph2 = filter (\x -> fst x /= "Definite") morph2 ++ filter (\x -> fst x == "Definite") morph1
-    terms <- learnPattern cfg cnc gr noSmarts patts name pattern
+        (trees', patts0) = unzip $ query train pattern
+        preorder = length [() | ((id1,lemma1,pos1,morph1,rel1),(id2,lemma2,pos2,morph2,rel2)) <- patts0, id2 < id1] > length patts0 `div` 2
+        args = [(Vr (idx det_p), det_ty), (Vr (idx cn_p), cn_ty)]
+        term = Abs Explicit (idx det_p) (Abs Explicit (idx cn_p) (generateTerm gr (if preorder then reverse args else args) [] np_ty))
+        detCN = (name,CncFun Nothing (Just (L NoLoc term)) Nothing Nothing)
 
-    let (_,np_ty,_,Just (_,[detCN])) = combineOneTerms gr name terms Nothing det_p cn_p [idx det_p, idx cn_p]
-
-    let lincats = [("NP", np_ty), ("Quant", quant_ty), ("Num", numType), ("Det", det_ty)]
+    let lincats = [("NP", np_ty), ("Quant", quant_ty), ("Num", num_ty), ("Det", det_ty)]
     gr <- modifyCat cfg gr lincats
 
     return (gr, Just ("Noun", [detCN, dQuant, def, indef, numSg, numPl]), [])
+    where
+      mkNPType (Table (QC (_,c)) ty)
+        | c == identS "Number"  = ty
+        | c == identS "Species" = ty
+      mkNPType (RecType ltys) =
+        RecType [(l,xs,mkNPType ty) | (l,xs,ty) <- ltys, isNothing (isLockLabel l)]
+      mkNPType ty = composSafeOp mkNPType ty
 
 
 modifyCat cfg gr lincats = do
