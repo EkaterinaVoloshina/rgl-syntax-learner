@@ -251,8 +251,6 @@ learnDetCN cfg cnc gr noSmarts trees res = do
         (indef, def, quant_ty) = createArt cfg gr
         (dQuant, det_ty) = detQuant numType quant_ty
 
-    print numSg
-    print numType
     let name = identS "DetCN"
 
     cn_ty <- lookupResDef gr (cnc,identS "CN")
@@ -266,7 +264,6 @@ learnDetCN cfg cnc gr noSmarts trees res = do
 
     let (_,np_ty,_,Just (_,[detCN])) = combineOneTerms gr name terms Nothing det_p cn_p [idx det_p, idx cn_p]
 
-    print terms
     let lincats = [("NP", np_ty), ("Quant", quant_ty), ("Num", numType), ("Det", det_ty)]
     gr <- modifyCat cfg gr lincats
 
