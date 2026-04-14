@@ -489,7 +489,7 @@ combineTerms gr funName ts mb_var_isPre n_p cn_ty argNames =
         Just [(_,def,_)] -> (used_isPre, normalizeTbl ty def)
         Just defs ->
           case mb_var_isPre of
-            Just var_isPre -> getDefs var_isPre used_isPre (unzip3 defs)
+            Just var_isPre -> getDefs var_isPre used_isPre (unzip3 (sortOn (\(_,_,freq) -> -freq) defs))
             Nothing        -> let (_,def,_):_ = sortOn (\(_,_,rank) -> -rank) defs
                               in (used_isPre, normalizeTbl ty def)
       where
