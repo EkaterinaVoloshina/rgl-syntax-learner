@@ -132,7 +132,6 @@ learnCN cfg cnc gr noSmarts trees res = do
 
     let results = [(name1, eval gr cfg test pattern1 adjCN),
                    (name2, eval gr cfg test pattern2 advCN)] ++ res
-
     return (gr, adjCN, advCN, positA, results)
 
 
@@ -198,7 +197,7 @@ learnAdAP cfg cnc gr snoSmarts trees res = do
         pattern = [ap_p,ada_p]
     let (_, patts) = unzip $ query train pattern
     terms <- learnPattern cfg cnc gr noSmarts patts name pattern
-    let (_, _, _, fun) = combineOneTerms gr name terms Nothing ada_p ap_p [idx ada_p, idx ap_p]
+    let (_, fun) = combineTermsWTypes gr name terms Nothing ada_p ap_p [idx ada_p, idx ap_p]
     let results = ((name, eval gr cfg test pattern fun): res)
     return (gr, fun, results)
 

@@ -6,6 +6,7 @@ import GF.Infra.Ident
 import GF.Grammar.Grammar(Label,ident2label)
 import Data.Char (toUpper)
 import System.IO
+import Data.Map as Map
 
 data Config
   = Config
@@ -24,6 +25,7 @@ data Config
       , cfgUpdForms :: String -> String -> [([String],String)] -> [([String],String)]
       , cfgFilterLemmas :: String -> String -> Bool
       , cfgTreebanks:: [String]
+      , cfgDefaults:: [(String, String)]
       }
 
 cfgLangModuleFileName cfg pref =
@@ -49,6 +51,7 @@ defaultConfig iso2 iso3 name =
          , cfgUpdForms = \word pos forms -> forms
          , cfgFilterLemmas = \word pos -> True
          , cfgTreebanks = []
+         , cfgDefaults = []
          }
 
 withStatus msg f = do
@@ -189,10 +192,10 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "partitive"       [("Case","Par")]             "partitive"     "Par"             "Case"
   ,tag "illative"        [("Case","Ill")]             "illative"      "Ill"             "Case"
   ,tag "oblique"         [("Case","Obl")]             "oblique"       "Obl"             "Case"
-  ,tag "vocative"        [("Case","Voc")]             "voc"      "Voc"             "Case"
+  ,tag "vocative"        [("Case","Voc")]             "voc"           "Voc"             "Case"
   ,tag "possessive"      [("Case","Poss")]            "possessive"    "Poss"            "Case"
-  ,tag "def_nom"      [("Case","Nom"), ("Definite", "Def")]  "def_nom"    "Def_Nom"            "Case"
-  ,tag "def_dat"      [("Case","Dat"), ("Definite", "Def")]  "def_dat"    "Def_Dat"            "Case"
+  ,tag "def_nom"        [("Case","Nom"), ("Definite", "Def")]  "def_nom"    "Def_Nom"            "Case"
+  ,tag "def_dat"          [("Case","Dat"), ("Definite", "Def")]  "def_dat"    "Def_Dat"            "Case"
   ,tag "singular"        [("Number","Sing")]          "singular"      "Sg"              "Number"
   ,tag "plural"          [("Number","Plur")]          "plural"        "Pl"              "Number"
   ,tag "dual"            [("Number","Dual")]          "dual"          "Dl"              "Number"
@@ -222,13 +225,16 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "formal"          [("Polite","Form")]          "formal"        "Formal"          "Formality"
   ,tag "animate"         [("Animacy","Anim")]         "animate"       "Animate"         "Animacy"
   ,tag "inanimate"       [("Animacy","Inam")]         "inanimate"     "Inanimate"       "Animacy"
-  ,tag "noun-from-verb"  notInCorpus                  "noun_from_verb"""                ""
+  ,tag "noun-from-verb"  notInCorpus                  "noun_from_verb" ""                ""
   ,tag "adjectival"      notInCorpus                  "adjectival"    ""                ""
   ,tag "adverbial"       [("Form","Adverbial")]       "adverbial"     "Adverbial"       ""
   ,tag "inclusive"       [("Clusivity","Inclusive")]  "inclusive"     "Inclusive"       "Clusivity"
   ,tag "exclusive"       [("Clusivity","Exclusive")]  "exclusive"     "Exclusive"       "Clusivity"
   ,tag ""                notInCorpus                  "c2"            ""                ""
   ,tag ""                notInCorpus                  "c3"            ""                ""
+  ,tag ""                notInCorpus                  ""              "NoMutation"      "Mutation"
+  ,tag ""                notInCorpus                  ""              "Lenited"         "Mutation"
+  ,tag ""                notInCorpus                  ""              "noAspect"      "Aspect"
   ]
   where
     tag wikt_tag umorph_tag label ident typ = Tag wikt_tag umorph_tag (ident2label (identS label)) (identS ident) (identS typ)

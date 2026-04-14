@@ -4,7 +4,7 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                noSmarts,
                learnPattern, query,
                getFun, getModule,
-               combineTypes, combineTerms, combineOneTerms,
+               combineTypes, combineTermsWTypes, combineTerms, combineOneTerms,
                extendTypeWithIsPre, extendTermWithIsPre,
                detQuant, createArt, createNum,
                generateTerm,
@@ -38,6 +38,8 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Learner.Config hiding (POS)
 import Learner.DecisionTree
+
+import Debug.Trace(trace)
 
 type Types = Map.Map String [Label]
 
@@ -79,7 +81,9 @@ learnPattern cfg cnc gr smarts pat name pattern = do
         QueryPattern {idx=cn, var_type=n_ty} = pattern !! 0
         patts = do  -- query edges matching AdjCN
           (n1, n2) <- pat
-          return [(n1,Vr cn,n_ty),(n2,Vr ap,a_ty)]
+          --let (_,_,_,p,_) = n1 
+          --trace (show (filter (\(k,v) -> k `notElem` (map fst p)) (cfgDefaults cfg)) ++ " " ++ show (insertDefaults cfg n1)) $ return ()
+          return [(insertDefaults cfg n1,Vr cn,n_ty),(insertDefaults cfg n2,Vr ap,a_ty)]
 
         cctxt = CodeContext [(Vr ap,a_ty),(Vr cn,n_ty)] -- argument types
                             patts                       -- matching patterns
@@ -307,8 +311,12 @@ matchEdges (p1, p2) (n1@(_,_,pos1,m1,rel1),n2@(_,_,pos2,m2,rel2)) = checkPos (po
         checkFeat (feat, Match (v:val)) m2 | otherwise = checkFeat (feat, Match val) m2
         checkFeat (feat, Not []) m2 = True
         checkFeat (feat, Not (v:val)) m2 | (feat, v) `elem` m2 = False
-        checkFeat (feat, Not (v:val)) m2 | otherwise = checkFeat (feat, Not val) m2
+        checkFeat (feat, Not (v:val)) m2  = checkFeat (feat, Not val) m2
         checkPos pos p = isNothing pos || p `elem` (fromJust pos)
+
+insertDefaults cfg (idx, lemma, pos, patts, deprel) = (idx, lemma, pos, patts', deprel)
+    where param = map fst patts
+          patts' = patts ++ filter (\(k,v) -> k `notElem` param) (cfgDefaults cfg)
 
 getFun :: Ident -> [Ident] -> Term -> (Ident, Info)
 getFun name args f = (name, CncFun (Nothing) (Just (L NoLoc (getArgs args f))) Nothing Nothing)
@@ -487,11 +495,12 @@ combineTerms gr funName ts mb_var_isPre n_p cn_ty argNames =
       where
         getDefs var_isPre used_isPre (order, defs', rs)
           | length (nub order) == 1 = (used_isPre, normalizeTbl ty (fst (head (sortOn snd (zip defs' rs)))))
-        getDefs var_isPre used_isPre (order1:order2:_, def1:def2:_, _) =
+        getDefs var_isPre used_isPre (order1:orders, def1:restDefs,_) =
           (True,
            S (T TRaw [getPreOrPost order1 (normalizeTbl ty def1), getPreOrPost order2 (normalizeTbl ty def2)])
              (P (Vr var_isPre) cIsPre))
           where
+            (order2, def2) = head (filter (\(x, y) -> x /= order1) (zip orders restDefs))
             getPreOrPost o def
               | head o == var_isPre = (PP (cPrelude, cTrue)  [], def)
               | otherwise           = (PP (cPrelude, cFalse) [], def)
@@ -512,6 +521,11 @@ combineOneTerms gr funName ts mb_var_isPre a_p n_p argNames =
   let ([ap_ty],cn_ty) = combineTypes ts [a_p] n_p
       (used_isPre, fun) = combineTerms gr funName ts mb_var_isPre n_p cn_ty argNames
   in (ap_ty,cn_ty,used_isPre,fun)
+
+combineTermsWTypes gr funName [] mb_var_isPre a_p n_p argNames = (False,Nothing)
+combineTermsWTypes gr funName ts mb_var_isPre a_p n_p argNames =
+  let cn_ty = var_type n_p
+  in combineTerms gr funName ts mb_var_isPre n_p cn_ty argNames
 
 cPrelude = moduleNameS "Prelude"
 cIsPre = LIdent (rawIdentS "isPre")
