@@ -1,33 +1,36 @@
 concrete VerbHye of Verb = CatHye ** open Prelude,ResHye in {
   flags
     coding = "UTF-8" ;
-  lin AdvVP vps adv = {s = \\_ => adv.s ++ vps.s;
-                       conditional = \\a,p,n,_ => adv.s ++ vps.conditional ! a ! p ! n;
-                       converb = {imperfective = \\_ => adv.s ++ vps.converb.imperfective;
-                                  futCon1 = \\_ => adv.s ++ vps.converb.futCon1;
-                                  futCon2 = \\_ => adv.s ++ vps.converb.futCon2;
-                                  negative = \\_ => adv.s ++ vps.converb.negative;
-                                  perfective = \\_ => adv.s ++ vps.converb.perfective;
-                                  simultaneous = \\_ => adv.s ++ vps.converb.simultaneous};
-                       imperative = \\n => vps.imperative ! n ++ adv.s;
-                       passive = \\_ => adv.s ++ vps.passive;
-                       past = \\p,n,_ => adv.s ++ vps.past ! p ! n;
-                       participle = \\p,_ => adv.s ++ vps.participle ! p;
-                       subjunctive = \\a,p,n,_ => adv.s ++ vps.subjunctive ! a ! p ! n} ;
-  lin ComplSlash vps np = {s = \\c => np.s ! c ++ vps.s;
-                           conditional = \\a,p,n,c => vps.conditional ! a ! p ! n ++ np.s ! c;
-                           converb = {imperfective = \\c => np.s ! c
-                                                              ++ vps.converb.imperfective;
-                                      futCon1 = \\c => np.s ! c ++ vps.converb.futCon1;
-                                      futCon2 = \\c => np.s ! c ++ vps.converb.futCon2;
-                                      negative = \\c => np.s ! c ++ vps.converb.negative;
-                                      perfective = \\c => np.s ! c ++ vps.converb.perfective;
-                                      simultaneous = \\c => np.s ! c ++ vps.converb.simultaneous};
-                           imperative = \\n => np.s ! Nom ++ vps.imperative ! n;
-                           passive = \\c => np.s ! c ++ vps.passive;
-                           past = \\p,n,c => vps.past ! p ! n ++ np.s ! c;
-                           participle = \\p,c => np.s ! c ++ vps.participle ! p;
-                           subjunctive = \\a,p,n,c => vps.subjunctive ! a ! p ! n
-                                                        ++ np.s ! c} ;
+  lin AdvVP vp adv = {s = adv.s ++ vp.s;
+                      conditional = \\a,p,n => adv.s ++ vp.conditional ! a ! p ! n;
+                      converb = {imperfective = adv.s ++ vp.converb.imperfective;
+                                 futCon1 = adv.s ++ vp.converb.futCon1;
+                                 futCon2 = adv.s ++ vp.converb.futCon2;
+                                 negative = adv.s ++ vp.converb.negative;
+                                 perfective = adv.s ++ vp.converb.perfective;
+                                 simultaneous = adv.s ++ vp.converb.simultaneous};
+                      imperative = \\n => vp.imperative ! n ++ adv.s;
+                      passive = adv.s ++ vp.passive;
+                      past = \\p,n => adv.s ++ vp.past ! p ! n;
+                      participle = \\p => adv.s ++ vp.participle ! p;
+                      subjunctive = \\a,p,n => adv.s ++ vp.subjunctive ! a ! p ! n} ;
+  lin ComplSlash vp np = {s = vp.s ++ vp.c2.s ++ np.s ! vp.c2.c;
+                          conditional = \\a,p,n => vp.conditional ! a ! p ! n
+                                                     ++ vp.c2.s ++ np.s ! vp.c2.c;
+                          converb = {imperfective = vp.converb.imperfective
+                                                      ++ vp.c2.s ++ np.s ! vp.c2.c;
+                                     futCon1 = vp.converb.futCon1 ++ vp.c2.s ++ np.s ! vp.c2.c;
+                                     futCon2 = vp.converb.futCon2 ++ vp.c2.s ++ np.s ! vp.c2.c;
+                                     negative = vp.converb.negative ++ vp.c2.s ++ np.s ! vp.c2.c;
+                                     perfective = vp.converb.perfective
+                                                    ++ vp.c2.s ++ np.s ! vp.c2.c;
+                                     simultaneous = vp.converb.simultaneous
+                                                      ++ vp.c2.s ++ np.s ! vp.c2.c};
+                          imperative = \\n => vp.imperative ! n ++ vp.c2.s ++ np.s ! Nom;
+                          passive = vp.passive ++ vp.c2.s ++ np.s ! vp.c2.c;
+                          past = \\p,n => vp.past ! p ! n ++ vp.c2.s ++ np.s ! vp.c2.c;
+                          participle = \\p => vp.participle ! p ++ vp.c2.s ++ np.s ! vp.c2.c;
+                          subjunctive = \\a,p,n => vp.subjunctive ! a ! p ! n
+                                                     ++ vp.c2.s ++ np.s ! vp.c2.c} ;
   lin SlashV2a v = v ;
 }
