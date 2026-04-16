@@ -52,8 +52,8 @@ eval gr cfg trees patts (Just fun) = (fromIntegral (length res') / fromIntegral 
         result = concatMap (\x -> map (\y -> (fst x, y)) (snd x )) (concat (map (evalTerm headType args') rs))
         patts' = map (getUpdatedPatterns patts headType) result
 
-        (_, res) = unzip $ query trees patts
-        res' = nub $ concatMap (\p -> snd (unzip $ query trees p)) patts'
+        res  = query trees patts
+        res' = nub $ concatMap (query trees) patts'
 
         unpack (Abs _ _ abs) = unpack abs
         unpack abs = abs

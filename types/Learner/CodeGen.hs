@@ -2,7 +2,7 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                identS,Ident,
                rawIdentS,RawIdent, unionPatts,
                noSmarts,
-               learnPattern, query,
+               CodeContext(..), pattern2context, learnPattern, query,
                getFun, getModule,
                combineTypes, combineTermsWTypes, combineTerms, combineOneTerms,
                extendTypeWithIsPre, extendTermWithIsPre,
@@ -58,36 +58,22 @@ data QueryPattern = QueryPattern {
     lin_order :: Order
 } deriving (Show)
 
---query :: Tree Node -> ((String, Maybe String), (String, Maybe String)) -> IO [(Node, Node)]
-query trees fun = do
+query trees [a,b] = do
   t <- trees
-  let p = pairs fun []
-  -- fun to tuples
-  res (head p) t
-  where
-    pairs [a,b]      res = res ++ [(a,b)]
-    pairs (a:b:rest) res = pairs rest (res ++ [(a,b)])
-
-    res patt t = filter (\(t, e) -> matchEdges patt e) (edges t)
+  (_, e) <- edges t
+  guard (matchEdges (a,b) e)
+  return [fst e,snd e]
 
 
 
+pattern2context cfg pattern patts smarts =
+  CodeContext (map (\(QueryPattern {idx=v, var_type=ty}) -> (Vr v,ty)) pattern)
+              (map (zipWith (\(QueryPattern {idx=v, var_type=ty}) n -> (insertDefaults cfg n,Vr v,ty)) pattern) patts)
+              smarts
 
-learnPattern cfg cnc gr smarts pat name pattern = do
+learnPattern cfg cnc gr name cctxt = do
 
     putStrLn ("== " ++ showIdent name ++ " ==" )
-    -- TODO: generalize
-    let QueryPattern {idx=ap, var_type=a_ty} = pattern !! 1
-        QueryPattern {idx=cn, var_type=n_ty} = pattern !! 0
-        patts = do  -- query edges matching AdjCN
-          (n1, n2) <- pat
-          --let (_,_,_,p,_) = n1 
-          --trace (show (filter (\(k,v) -> k `notElem` (map fst p)) (cfgDefaults cfg)) ++ " " ++ show (insertDefaults cfg n1)) $ return ()
-          return [(insertDefaults cfg n1,Vr cn,n_ty),(insertDefaults cfg n2,Vr ap,a_ty)]
-
-        cctxt = CodeContext [(Vr ap,a_ty),(Vr cn,n_ty)] -- argument types
-                            patts                       -- matching patterns
-                            smarts
     -- putStrLn ("Patterns: ")
     -- mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
 
