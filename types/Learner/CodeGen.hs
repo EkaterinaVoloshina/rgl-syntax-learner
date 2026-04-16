@@ -163,7 +163,9 @@ learnPattern cfg cnc gr name cctxt = do
                            in S (T TRaw (cs1++[(PV x,App u (Vr x))])) t
            _   -> case (xs,ys) of
                     ([],[]) -> Meta 0
-                    ([],ys) -> S (T TRaw cs0) t
+                    ([],ys) -> case nub (map snd pairs) of
+                                 [t] -> t
+                                 _   -> S (T TRaw cs0) t
                     (xs,[]) -> t
                     (xs,ys) -> let x = identS "x"
                                in S (T TRaw (cs0++[(PV x,Vr x)])) t
