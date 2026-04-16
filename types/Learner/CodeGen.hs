@@ -5,7 +5,7 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                CodeContext(..), pattern2context, learnPattern, query,
                getFun, getModule,
                combineTypes, combineTermsWTypes, combineTerms, combineOneTerms,
-               extendTypeWithIsPre, extendTermWithIsPre,
+               extendTypeWithIsPre, extendTermWithIsPre, modifyDefaultIsPre,
                detQuant, createArt, createNum,
                generateTerm,
                QueryPattern(..), Val(..), Order(..)) where
@@ -521,7 +521,29 @@ extendTypeWithIsPre (RecType ltys)
       RecType (ltys ++ [(cIsPre,[],Q (cPrelude,cBool))])
 extendTypeWithIsPre ty             = ty
 
-extendTermWithIsPre t = ExtR t (R [(cIsPre,(Nothing,Q (cPrelude,cTrue)))])
+extendTermWithIsPre t def =
+  case t of
+    Abs bt x t -> Abs bt x (extendTermWithIsPre t def)
+    R lts      -> case lookup cIsPre lts of
+                    Nothing -> R (lts ++ [(cIsPre,(Nothing,cDef))])
+                    Just _  -> t
+    t          -> ExtR t (R [(cIsPre,(Nothing,cDef))])
+  where
+    cDef = QC ( cPrelude
+              , case def of
+                  True  -> cTrue
+                  False -> cFalse
+              )
+
+modifyDefaultIsPre cfg gr oper def = do
+  mo <- lookupModule gr paradigms_mn
+  case Map.lookup oper (jments mo) of
+    Just (ResOper mty (Just (L loc t)))
+            -> return gr{moduleMap=Map.insert paradigms_mn mo{jments=Map.insert oper (ResOper mty (Just (L loc (extendTermWithIsPre t def)))) (jments mo)} (moduleMap gr)}
+    Nothing -> return gr
+  where
+    paradigms_mn = cfgLangModuleName cfg "Paradigms"
+
 
 getUsedLabels t@(P _ lbl) =
   let (var,lbls) = unpack t in [(var, reverse lbls)]

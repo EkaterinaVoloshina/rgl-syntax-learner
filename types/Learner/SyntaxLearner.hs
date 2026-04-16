@@ -70,9 +70,11 @@ learn cfg = do
         ++ "\n")
 
     -- block of functions to create modules -- 
-    let cat_mn     = cfgLangModuleName cfg "Cat"
-        grammar_mn = cfgLangModuleName cfg "Grammar"
+    let cat_mn       = cfgLangModuleName cfg "Cat"
+        paradigms_mn = cfgLangModuleName cfg "Paradigms"
+        grammar_mn   = cfgLangModuleName cfg "Grammar"
     cat_mo     <- lookupModule gr cat_mn
+    paradigms_mo <- lookupModule gr grammar_mn
     grammar_mo <- lookupModule gr grammar_mn
 
     cat_mo' <- (if OSimple (moduleNameS "Prelude") `notElem` mopens cat_mo then return (cat_mo {mopens=OSimple (moduleNameS "Prelude"):mopens cat_mo}) else return cat_mo)
@@ -92,6 +94,7 @@ learn cfg = do
 
     writeFile (cfgOutputFolder cfg </> cfgLangName cfg </> cfgLangModuleFileName cfg "Grammar" ++ ".gf") (show (ppModule Unqualified (grammar_mn,grammar_mo)))
     writeFile (cfgOutputFolder cfg </> cfgLangName cfg </> cfgLangModuleFileName cfg "Cat" ++ ".gf") (show (ppModule Unqualified (cat_mn,cat_mo')))
+    writeFile (cfgOutputFolder cfg </> cfgLangName cfg </> cfgLangModuleFileName cfg "Paradigms" ++ ".gf") (show (ppModule Unqualified (paradigms_mn,paradigms_mo)))
 
 
 learnCN cfg cnc gr noSmarts trees res = do
@@ -125,7 +128,7 @@ learnCN cfg cnc gr noSmarts trees res = do
     let positA = Just ("Adjective", [getFun (identS "PositA") [a] def])
                  where
                    a = identS "a"
-                   def | used_isPre = extendTermWithIsPre (Vr a)
+                   def | used_isPre = extendTermWithIsPre (Vr a) True
                        | otherwise  = Vr a
 
     gr <- modifyCat cfg gr [("AP",ap_ty),("CN",cn_ty)]
@@ -237,7 +240,8 @@ learnPrepNP cfg cnc gr noSmarts trees res = do
 
     let (_, _, used_isPre, fun) = combineOneTerms gr name terms (Just (idx prep_p)) prep_p np_p{var_type=defLinType} [idx prep_p, idx np_p]
     gr <- if used_isPre
-            then modifyCat cfg gr [("Prep", extendTypeWithIsPre prep_ty)]
+            then do gr <- modifyCat cfg gr [("Prep", extendTypeWithIsPre prep_ty)]
+                    modifyDefaultIsPre cfg gr (identS "mkPrep") True
             else return gr
 
 
