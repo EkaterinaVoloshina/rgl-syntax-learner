@@ -8,7 +8,9 @@ concrete CatHye of Cat = CommonX ** open Prelude,ResHye in {
                def_nom : Number => Str; poss1 : Case => Number => Str;
                poss2 : Case => Number => Str; c2 : {s : Str; c : Case}} ;
   lincat ACard = {s : Str} ;
-  lincat AP = {} ;
+  lincat AP = {s : Case => Number => Str;
+               poss1 : Case => Number => Str; poss2 : Case => Number => Str;
+               isPre : Bool} ;
   lincat CN = {s : Case => Number => Str; def_dat : Number => Str;
                def_nom : Number => Str; poss1 : Case => Number => Str;
                poss2 : Case => Number => Str} ;
