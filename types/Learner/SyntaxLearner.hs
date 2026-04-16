@@ -74,7 +74,7 @@ learn cfg = do
         paradigms_mn = cfgLangModuleName cfg "Paradigms"
         grammar_mn   = cfgLangModuleName cfg "Grammar"
     cat_mo     <- lookupModule gr cat_mn
-    paradigms_mo <- lookupModule gr grammar_mn
+    paradigms_mo <- lookupModule gr paradigms_mn
     grammar_mo <- lookupModule gr grammar_mn
 
     cat_mo' <- (if OSimple (moduleNameS "Prelude") `notElem` mopens cat_mo then return (cat_mo {mopens=OSimple (moduleNameS "Prelude"):mopens cat_mo}) else return cat_mo)
