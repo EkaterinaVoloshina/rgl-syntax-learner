@@ -54,32 +54,32 @@ learn cfg = do
                            mkLin (identS "MkDefinition") (Abs Explicit t (Abs Explicit d (R [assign theLinLabel (C (K "<p><b>Definition:</b>") (C (P (Vr t) theLinLabel) (C (P (Vr d) theLinLabel) (K "</p>"))))]))) ++
                            mkLin (identS "MkDefinitionEx") (Abs Explicit t (Abs Explicit d (Abs Explicit e (R [assign theLinLabel (C (K "<p><b>Definition:</b>") (C (P (Vr t) theLinLabel) (C (P (Vr d) theLinLabel) (C (K "<p><b>Example:</b>") (C (P (Vr t) theLinLabel) (K "</p>"))))))])))) ++
                            mkLin (identS "MkTag") (Abs Explicit i (R [assign theLinLabel (P (Vr i) (ident2label t))])) ++
-                           mkLin (identS "MkDocument") (Abs Explicit d (Abs Explicit i (Abs Explicit e (R [assign theLinLabel (P (Vr i) (ident2label s1))])))) ++
+                           mkLin (identS "MkDocument") (Abs Explicit d (Abs Explicit i (Abs Explicit e (R [assign theLinLabel (C (P (Vr i) (ident2label s1)) (P (Vr i) (ident2label s2)))])))) ++
                            mkInflection gr cnc "n" "Noun" (identS "noun") "N"  ++
                            mkInflection gr cnc "n" "Noun" (identS "noun") "N2" ++
                            mkInflection gr cnc "n" "Noun" (identS "noun") "N3" ++
-                           mkInflection gr cnc "pn" "Noun" (identS "pn") "PN" ++
-                           mkInflection gr cnc "pn" "Noun" (identS "pn") "LN" ++
-                           mkInflection gr cnc "pn" "Noun" (identS "pn") "GN" ++
-                           mkInflection gr cnc "pn" "Noun" (identS "pn") "SN" ++
-                           mkInflection gr cnc "a" "Noun" (identS "adj") "A" ++
-                           mkInflection gr cnc "a" "Noun" (identS "adj") "A2" ++
-                           mkInflection gr cnc "v" "Noun" (identS "v") "V" ++
-                           mkInflection gr cnc "v" "Noun" (identS "v") "V2" ++
-                           mkInflection gr cnc "v" "Noun" (identS "v") "VV" ++
-                           mkInflection gr cnc "v" "Noun" (identS "v") "VS" ++
-                           mkInflection gr cnc "v" "Noun" (identS "v") "VQ" ++
-                           mkInflection gr cnc "v" "Noun" (identS "v") "VA" ++
-                           mkInflection gr cnc "v" "Noun" (identS "v") "V3" ++
-                           mkInflection gr cnc "v" "Noun" (identS "v") "V2V" ++
-                           mkInflection gr cnc "v" "Noun" (identS "v") "V2S" ++
-                           mkInflection gr cnc "v" "Noun" (identS "v") "V2Q" ++
-                           mkInflection gr cnc "v" "Noun" (identS "v") "V2A" ++
-                           mkInflection gr cnc "adv" "Noun" (identS "adv") "Adv" ++
-                           mkInflection gr cnc "adv" "Noun" (identS "adv") "AdV" ++
-                           mkInflection gr cnc "adv" "Noun" (identS "adv") "AdA" ++
-                           mkInflection gr cnc "adv" "Noun" (identS "adv") "AdN" ++
-                           mkInflection gr cnc "prep" "Noun" (identS "prep") "Prep")
+                           mkInflection gr cnc "pn" "Name" (identS "pn") "PN" ++
+                           mkInflection gr cnc "pn" "Name" (identS "pn") "LN" ++
+                           mkInflection gr cnc "pn" "Name" (identS "pn") "GN" ++
+                           mkInflection gr cnc "pn" "Name" (identS "pn") "SN" ++
+                           mkInflection gr cnc "a" "Adjective" (identS "adj") "A" ++
+                           mkInflection gr cnc "a" "Adjective" (identS "adj") "A2" ++
+                           mkInflection gr cnc "v" "Verb" (identS "v") "V" ++
+                           mkInflection gr cnc "v" "Verb" (identS "v") "V2" ++
+                           mkInflection gr cnc "v" "Verb" (identS "v") "VV" ++
+                           mkInflection gr cnc "v" "Verb" (identS "v") "VS" ++
+                           mkInflection gr cnc "v" "Verb" (identS "v") "VQ" ++
+                           mkInflection gr cnc "v" "Verb" (identS "v") "VA" ++
+                           mkInflection gr cnc "v" "Verb" (identS "v") "V3" ++
+                           mkInflection gr cnc "v" "Verb" (identS "v") "V2V" ++
+                           mkInflection gr cnc "v" "Verb" (identS "v") "V2S" ++
+                           mkInflection gr cnc "v" "Verb" (identS "v") "V2Q" ++
+                           mkInflection gr cnc "v" "Verb" (identS "v") "V2A" ++
+                           mkInflection gr cnc "adv" "Adverb" (identS "adv") "Adv" ++
+                           mkInflection gr cnc "adv" "Adverb" (identS "adv") "AdV" ++
+                           mkInflection gr cnc "adv" "Adverb" (identS "adv") "AdA" ++
+                           mkInflection gr cnc "adv" "Adverb" (identS "adv") "AdN" ++
+                           mkInflection gr cnc "prep" "Preposition" (identS "prep") "Prep")
            }
   print (ppModule Unqualified (cfgLangModuleName cfg "Documentation", mi))
 
