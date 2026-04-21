@@ -6,6 +6,7 @@ import qualified Learner.MorphoCats
 import qualified Learner.SyntaxLearner
 import qualified Learner.PidginSyntax
 import qualified Learner.Numerals
+import qualified Learner.Documentation
 import System.IO
 import System.Environment
 import System.Console.GetOpt
@@ -16,14 +17,16 @@ learnerMain cfg = do
   args <- getArgs
   case args of
     ("morpho-cats":args) -> withConfig cfg args Learner.MorphoCats.options Learner.MorphoCats.learn
+    ("documentation":args)->withConfig cfg args Learner.Numerals.options Learner.Documentation.learn
+    ("numerals":args)    -> withConfig cfg args Learner.Numerals.options Learner.Numerals.learn
     ("syntax":args)      -> withConfig cfg args Learner.SyntaxLearner.options Learner.SyntaxLearner.learn
     ("pidgin-syntax":args)->withConfig cfg args Learner.PidginSyntax.options Learner.PidginSyntax.learn
-    ("numerals":args)    -> withConfig cfg args Learner.Numerals.options Learner.Numerals.learn
     _                    -> do hPutStrLn stderr "Synopsis:"
                                hPutStrLn stderr (usageInfo (cfgLangName cfg++" morpho-cats <options>") Learner.MorphoCats.options)
+                               hPutStrLn stderr (usageInfo (cfgLangName cfg++" documentation <options>") Learner.Documentation.options)
+                               hPutStrLn stderr (usageInfo (cfgLangName cfg++" numerals <options>") Learner.Numerals.options)
                                hPutStrLn stderr (usageInfo (cfgLangName cfg++" syntax <options>") Learner.SyntaxLearner.options)
                                hPutStrLn stderr (usageInfo (cfgLangName cfg++" pidgin-syntax <options>") Learner.PidginSyntax.options)
-                               hPutStrLn stderr (usageInfo (cfgLangName cfg++" numerals <options>") Learner.Numerals.options)
 
 withConfig cfg args options f = do
   let (opts,nonopts,errs) = getOpt Permute options args
