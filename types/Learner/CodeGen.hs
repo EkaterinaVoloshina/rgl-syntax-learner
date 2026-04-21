@@ -419,7 +419,7 @@ combineTypes ts a_ps n_p = (ap_tys,cn_ty)
                      , not (null used')]
     filterHeadFields path used vr ty =
       case Map.lookup (reverse path) varTrees of
-        Just ts -> let (ty_args_count0,ty') = trace (show ty) $ unwrapTableTypes ty
+        Just ts -> let (ty_args_count0,ty') = unwrapTableTypes ty
                        ty_args_count
                           = foldl (\ty_args_count (_,t,_) ->
                                       let t_args_count   = (Map.toList . Map.fromListWith (+)) (unwrapTables t)
@@ -484,7 +484,7 @@ combineTerms gr funName ts mb_var_isPre n_p cn_ty argNames =
       in (used_isPre', R lts)
     mkRecord lbls used_isPre ty =
       case Map.lookup (reverse lbls) varTrees of
-        Nothing ->  trace (showIdent funName ++ show (reverse lbls)) (used_isPre, foldl P (Vr (idx n_p)) (reverse lbls))
+        Nothing ->  (used_isPre, foldl P (Vr (idx n_p)) (reverse lbls))
         Just [(_,def,_)] ->  (used_isPre, normalizeTbl ty def)
         Just defs ->
           case mb_var_isPre of
