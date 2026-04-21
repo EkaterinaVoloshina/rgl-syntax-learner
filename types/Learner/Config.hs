@@ -1,12 +1,15 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use camelCase" #-}
-module Learner.Config(module Learner.Config, Ident, identS, rawIdentS) where
+module Learner.Config(module Learner.Config, Ident, Node(..),identS, rawIdentS) where
 
 import GF.Infra.Ident
 import GF.Grammar.Grammar(Label,ident2label)
 import Data.Char (toUpper)
 import System.IO
 import Data.Map as Map
+
+type Node = (Int,String,String,[(String,String)],String)
+
 
 data Config
   = Config
@@ -24,8 +27,9 @@ data Config
       , cfgUpdPOS   :: String -> String -> String
       , cfgUpdForms :: String -> String -> [([String],String)] -> [([String],String)]
       , cfgFilterLemmas :: String -> String -> Bool
-      , cfgTreebanks:: [String]
-      , cfgDefaults:: [(String, String)]
+      , cfgTreebanks :: [String]
+      , cfgDefaults :: Config -> Node -> Node
+      , cfgIncludeWO :: Bool
       }
 
 cfgLangModuleFileName cfg pref =
@@ -51,7 +55,8 @@ defaultConfig iso2 iso3 name =
          , cfgUpdForms = \word pos forms -> forms
          , cfgFilterLemmas = \word pos -> True
          , cfgTreebanks = []
-         , cfgDefaults = []
+         , cfgDefaults = \x id -> id
+         , cfgIncludeWO = False
          }
 
 withStatus msg f = do
@@ -142,13 +147,15 @@ all_tags = flip (zipWith id) [0..] $
   ,tag "proximal"        [("Distance","Proximal")]    "proximal"      "Proximal"        "Distance"
   ,tag "distal"          [("Distance","Distal")]      "distal"        "Distal"          "Distance"
   ,tag "present"         [("Tense","Pres")]           "present"       "Present"         "Tense"
+  ,tag "present"         [("Tense","Pres")]           "pres"          "Pres"         "Tense"
   ,tag "past"            [("Tense","Past")]           "past"          "Past"            "Tense"
   ,tag "aorist"          [("Tense","Past")]           "aorist"        "Aorist"          "Tense"
   ,tag "imperfect"       [("Tense","Imp")]            "imperfect"     "Imperfect"       "Tense"
   ,tag "perfect"         []                         "perfect"       "Perfect"         "Tense"
   ,tag "pluperfect"      []                         "pluperf"       "Pluperf"         "Tense"
   ,tag "past-perfect"    []                         "past_perf"     "PastPerfect"     "Tense"
-  ,tag "future"          []                         "future"        "Future"          "Tense"
+  ,tag "future"          [("Tense","Fut")]                         "future"        "Future"          "Tense"
+  ,tag "future"          [("Tense","Fut")]                         "fut"        "Fut"          "Tense"
   ,tag "past-future"     []                         "past_future"   "PastFuture"      "Tense"
   ,tag "future-perfect"  []                         "future_perf"   "FuturePerfect"   "Tense"
   ,tag "imperfective"    [("Aspect","Imp")]           "imperf"        "Imperfective"    "Aspect"
