@@ -41,6 +41,7 @@ learn cfg = do
     let (train', test') = (concat train, concat test)
     let trees = maybe (train', test') (\n -> (take n train', test')) (cfgTrainSize cfg)
 
+    
     let res = []
     -- block of functions that handle CN type --
     (gr, adjCN, advCN, positA, res) <- learnCN cfg cnc gr noSmarts trees res
@@ -66,7 +67,7 @@ learn cfg = do
         "Train Ratio: " ++ show (fromIntegral (length train') / fromIntegral (length train' + length test')) ++ "\n"
         ++ "Train Size: " ++ show (cfgTrainSize cfg) ++ "\n"
         ++ "Stopping Threshold: " ++ show (cfgSyntaxStopping cfg) ++ "\n"
-        ++ concatMap (\(id, r) -> showIdent id ++ "\t" ++ show r ++ "\n") res
+        ++ concatMap (\(id, (acc, contr,s)) -> showIdent id ++ "\t" ++ show acc ++ "\nPatterns: \n" ++ concatMap (\x -> show x ++ "\n") s ++ "\nCounterexamples: \n" ++ concatMap (\x -> concatMap (show . ppNode) x ++ ";\n") contr ++ "\n") res
         ++ "\n")
 
     -- block of functions to create modules -- 
@@ -100,6 +101,7 @@ learn cfg = do
 learnCN cfg cnc gr noSmarts trees res = do
     let (train, test) = trees
 
+    
     n_ty <- lookupResDef gr (cnc,identS "N")
     let n_p = QueryPattern {pos=Just ["NOUN"], rel=Nothing, morpho=Nothing, idx=identS "cn", var_type=n_ty, lin_order=NA}
 
@@ -108,7 +110,8 @@ learnCN cfg cnc gr noSmarts trees res = do
     a_ty <- lookupResDef gr (cnc,identS "A")
     let a_p = QueryPattern {pos=Just ["ADJ"], rel=Just "mod", morpho=Nothing, idx=identS "ap", var_type=a_ty, lin_order=NA}
         pattern1 = [n_p,a_p]
-    let patts = query train pattern1
+    let patts = query cfg train pattern1
+
     terms1 <- learnPattern cfg cnc gr name1 (pattern2context cfg pattern1 patts noSmarts)
 
     -- find AdvCN structures
@@ -116,7 +119,7 @@ learnCN cfg cnc gr noSmarts trees res = do
     adv_ty <- lookupResDef gr (cnc,identS "Adv")
     let adv_p = QueryPattern {pos=Just ["ADP"], rel=Just "udep", morpho=Nothing, idx=identS "adv", var_type=adv_ty, lin_order=NA}
         pattern2 = [n_p, adv_p]
-    let patts2 = query train pattern2
+    let patts2 = query cfg train pattern2
     terms2 <- learnPattern cfg cnc gr name2 (pattern2context cfg pattern2 patts2 noSmarts)
 
     let ([ap_ty0],cn_ty) = combineTypes (terms1++terms2) [a_p] n_p
@@ -124,17 +127,19 @@ learnCN cfg cnc gr noSmarts trees res = do
         (_, advCN) = combineTerms gr name2 terms2 Nothing n_p cn_ty [idx n_p,idx adv_p]
         ap_ty | used_isPre = extendTypeWithIsPre ap_ty0
               | otherwise  = ap_ty0
-
+  
     let positA = Just ("Adjective", [getFun (identS "PositA") [a] def])
                  where
                    a = identS "a"
                    def | used_isPre = extendTermWithIsPre (Vr a) True
                        | otherwise  = Vr a
-
+    
     gr <- modifyCat cfg gr [("AP",ap_ty),("CN",cn_ty)]
 
-    let results = [(name1, eval gr cfg test pattern1 adjCN),
-                   (name2, eval gr cfg test pattern2 advCN)] ++ res
+    let results = [(name1, eval gr cfg test pattern1 cn_ty adjCN),
+                   (name2, eval gr cfg test pattern2 cn_ty advCN)] ++ res
+    
+
     return (gr, adjCN, advCN, positA, results)
 
 
@@ -146,7 +151,7 @@ learnComplSlash cfg cnc gr noSmarts trees res = do
     let v2_p = QueryPattern {pos=Just ["VERB"], rel=Nothing, morpho=Nothing, idx=identS "vp", var_type=v2_ty, lin_order=NA}
         np_p = QueryPattern {pos=Just ["NOUN"], rel = Just "comp:obj", morpho=Nothing, idx=identS "np", var_type=np_ty, lin_order=NA}
         pattern1 = [v2_p,np_p]
-        patts = query train pattern1
+        patts = query cfg train pattern1
         mb_compl_ty =
           case v2_ty of
             RecType ltys -> case [ty | (l,_,ty) <- ltys, l == ident2label (identS "c2")] of
@@ -161,8 +166,9 @@ learnComplSlash cfg cnc gr noSmarts trees res = do
                              in CodeContext [(Vr (idx v2_p),var_type v2_p),(P (Vr (idx v2_p)) c2,compl_ty),(Vr (idx np_p),var_type np_p)]
                                             patts'
                                             noSmarts
+    
     terms1 <- learnPattern cfg cnc gr name1 ctxt
-
+    
     let name2 = identS "AdvVP"
     adv_ty <- lookupResDef gr (cnc,identS "Adv")
 
@@ -170,20 +176,26 @@ learnComplSlash cfg cnc gr noSmarts trees res = do
     let v_p  = QueryPattern {pos=Just ["VERB"], rel=Nothing, morpho=Nothing, idx=identS "vp", var_type=v_ty, lin_order=NA}
         adv_p = QueryPattern {pos=Just ["ADP"], rel = Just "udep", morpho=Nothing, idx=identS "adv", var_type=adv_ty, lin_order=NA}
         pattern2 = [v_p,adv_p]
-    let patts = query train pattern2
+    let patts = query cfg train pattern2
+
     terms2 <- learnPattern cfg cnc gr name2 (pattern2context cfg pattern2 patts noSmarts)
 
     let (_, vp_ty) = combineTypes (terms1++terms2) [np_p] v_p
-        (_, сomplSlash) = combineTerms gr name1 terms1 Nothing v_p vp_ty [idx v_p,idx np_p]
+        (_, complSlash) = combineTerms gr name1 terms1 Nothing v_p vp_ty [idx v_p,idx np_p]
         (_, advVP) = combineTerms gr name2 terms2 Nothing v_p vp_ty [idx v_p,idx adv_p]
 
     gr <- modifyCat cfg gr [("VPSlash",unLock v2_ty),("VP",vp_ty)]
-    let results = [(name1, eval gr cfg test pattern1 сomplSlash),
-                   (name2, eval gr cfg test pattern2 advVP)] ++ res
-    return (gr, сomplSlash, advVP, results)
+    let results = [(name1, eval gr cfg test pattern1 vp_ty complSlash),
+                   (name2, eval gr cfg test pattern2 vp_ty advVP)] ++ res
+
+    return (gr, complSlash, advVP, results)
     where
+
       unLock (RecType ltys) = RecType [x | x@(l,xs,ty) <- ltys, isNothing (isLockLabel l)]
       c2 = ident2label (identS "c2")
+      
+      
+      
 
 learnPredVP cfg cnc gr noSmarts trees res = do
     let (train, test) = trees
@@ -193,13 +205,17 @@ learnPredVP cfg cnc gr noSmarts trees res = do
     let vp_p = QueryPattern {pos=Just ["VERB"], rel=Nothing, morpho=Nothing, idx=identS "vp", var_type=vp_ty, lin_order=NA}
         np_p = QueryPattern {pos=Just ["NOUN"], rel=Just "subj", morpho=Nothing, idx=identS "np", var_type=np_ty, lin_order=NA}
         pattern = [vp_p,np_p]
-    let patts = query train pattern
+    let patts = query cfg train pattern
     fun <- learnPattern cfg cnc gr name (pattern2context cfg pattern patts noSmarts)
+    
     let (_, cl_ty, _, fs) = combineOneTerms gr name fun Nothing np_p vp_p [idx np_p, idx vp_p]
     gr <- modifyCat cfg gr [("Cl", cl_ty)]
 
-    let results = ((name, eval gr cfg test pattern fs):res)
+
+
+    let results = ((name, eval gr cfg test pattern cl_ty fs):res)
     return (gr, fs, results)
+
 
 learnSlashV2a cfg = Just ("Verb", [getFun (identS "SlashV2a") [v] (Vr v)])
   where
@@ -213,10 +229,10 @@ learnAdAP cfg cnc gr snoSmarts trees res = do
     let ap_p  = QueryPattern {pos=Just ["ADJ"], rel=Nothing, morpho=Nothing, idx=identS "ap", var_type=ap_ty, lin_order=NA}
         ada_p = QueryPattern {pos=Just ["ADV"], rel=Just "mod", morpho=Nothing, idx=identS "ada", var_type=adv_ty, lin_order=NA}
         pattern = [ap_p,ada_p]
-    let patts = query train pattern
+    let patts = query cfg train pattern
     terms <- learnPattern cfg cnc gr name (pattern2context cfg pattern patts noSmarts)
     let (_, fun) = combineTermsWTypes gr name terms Nothing ada_p ap_p [idx ada_p, idx ap_p]
-    let results = ((name, eval gr cfg test pattern fun): res)
+    let results = ((name, eval gr cfg test pattern ap_ty fun): res)
     return (gr, fun, results)
 
 --learnAdvAP lang cnc gr mapping noSmarts trees = do 
@@ -234,9 +250,10 @@ learnPrepNP cfg cnc gr noSmarts trees res = do
     let prep_p = QueryPattern {pos= Just ["ADP"], rel=Nothing, morpho=Nothing, idx=identS "p", var_type=prep_ty, lin_order=NA}
         np_p   = QueryPattern {pos= Just ["NOUN"], rel=Just "comp:obj", morpho=Nothing, idx=identS "np", var_type=np_ty, lin_order=NA}
         pattern = [prep_p, np_p]
-    let patts1 = query train pattern
-
-    terms <- learnPattern cfg cnc gr name (pattern2context cfg pattern patts1 noSmarts)
+    let patts = query cfg train pattern
+    let patts' = map fixCase patts
+   
+    terms <- learnPattern cfg cnc gr name (pattern2context cfg pattern patts' noSmarts)
 
     let (_, _, used_isPre, fun) = combineOneTerms gr name terms (Just (idx prep_p)) prep_p np_p{var_type=defLinType} [idx prep_p, idx np_p]
     gr <- if used_isPre
@@ -245,8 +262,17 @@ learnPrepNP cfg cnc gr noSmarts trees res = do
             else return gr
 
 
-    let results = (name, eval gr cfg test pattern fun):res
+    let results = (name, eval gr cfg test pattern np_ty fun):res
     return (gr, fun, results)
+
+    where
+        fixCase ((idx1, lemma1, pos1, patts1, deprel1):noun@(_, _, _, patts2, _):rest) =
+            ((idx1, lemma1, pos1, patts', deprel1): noun:rest)
+            where patts' = patts1 ++ filter (\(x, y) -> x == "Case") patts2
+
+lookupParam gr cfg param = case allParamValues gr (QC (MN  (identS (cfgLangModuleFileName cfg "Res")), identS param)) of
+    Ok m -> Just m
+    Bad msg -> Nothing
 
 learnUseN cfg = Just ("Noun", [getFun (identS "UseN") [n] (Vr n)])
   where
@@ -256,7 +282,7 @@ learnDetCN cfg cnc gr noSmarts trees res = do
     let (train, test) = trees
     let pattern = [QueryPattern {pos= Nothing, rel=Nothing, morpho=Nothing, idx=identW, var_type=R [], lin_order=NA},
                    QueryPattern {pos= Just ["DET"], rel = Nothing, morpho=Just [("PronType", Match ["Art"])], idx=identS "det", var_type=R [], lin_order=NA}]
-        patts = query train pattern
+        patts = query cfg train pattern
         artPatt = nub $ map (\[x@(_,lemma1,pos,m1,_), y@(_,lemma2,_,m2,_)] -> if pos == "DET" then (lemma1, m1) else (lemma2, m2)) patts
 
         allFeats = nub $ map fst (concatMap (\(Tag _ f _ _ _ _) -> f) all_tags)
@@ -275,7 +301,7 @@ learnDetCN cfg cnc gr noSmarts trees res = do
     let cn_p  = QueryPattern {pos= Just ["NOUN"], rel=Nothing, morpho=Nothing, idx=identS "cn", var_type=cn_ty, lin_order=NA}
         det_p = QueryPattern {pos= Just ["DET"], rel=Just "det", morpho=Nothing, idx=identS "det", var_type=det_ty, lin_order=NA}
         pattern = [cn_p, det_p]
-        patts0  = query train pattern
+        patts0  = query cfg train pattern
         preorder = length [() | [(id1,lemma1,pos1,morph1,rel1),(id2,lemma2,pos2,morph2,rel2)] <- patts0, id2 < id1] > length patts0 `div` 2
         args = [(Vr (idx det_p), det_ty), (Vr (idx cn_p), cn_ty)]
         term = Abs Explicit (idx det_p) (Abs Explicit (idx cn_p) (generateTerm gr (if preorder then reverse args else args) [] np_ty))
