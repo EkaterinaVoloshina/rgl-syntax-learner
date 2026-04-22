@@ -81,7 +81,7 @@ build atts dataset = build [] dataset
     build matched dataset =
       case bestAttribute dataset atts of
         (0,  _         ) -> let cs = groupWith snd (:[]) (++) dataset
-                                (dominantLabel,matched') = Map.findMax cs
+                                (dominantLabel,_,matched') = Map.foldrWithKey best (undefined,0,[]) cs
                             in (matched'++matched,Leaf dominantLabel (entropy (fmap length cs)))
         (inf,P n proj p) -> let (matched',children) = mapAccumL build matched p -- recursivly build the children
                             in (matched'
@@ -102,6 +102,11 @@ build atts dataset = build [] dataset
                                   right= right
                                 })
 
+    best label matched' (dominantLabel,count,matched)
+      | count' > count = (label,        count',matched')
+      | otherwise      = (dominantLabel,count, matched )
+      where
+        count' = length matched'
 
 -- | Build a regression DecisionTree from the given training set. The number in the result is the average standard deviation.
 buildC :: [Attribute n a] -> [(a,Double)] -> (Double, DecisionTree n a Double)
