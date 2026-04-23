@@ -207,7 +207,7 @@ learnPattern cfg cnc gr name cctxt = do
 
 
     cross_breed types dim_dataset dataset ins0@(freq0,acc0,_,t0',_) t0 subst0 ((_,_,subst0',_,_):rest) =
-       let subst0'' = subst0++subst0'
+       let subst0'' = subst0++map (rename 1 subst0) subst0'
            dataset' = map (selectVars subst0'') dataset
            ins@(freq, accuracy, _, t, dt) = instantiate types dim_dataset dataset' t0 subst0''
        in
@@ -221,6 +221,13 @@ learnPattern cfg cnc gr name cctxt = do
                            putStrLn ""
                          return (t, freq)
                  else cross_breed types dim_dataset dataset ins t0 subst0'' rest
+       where
+         rename i subst x@(k,Vr v)
+           | any (\(_,Vr w) -> w==v') subst = rename (i+1) subst x
+           | otherwise                      = x
+           where
+             v' | i == 1    = v
+                | otherwise = identS (showIdent v++show i)
 
 
 type POS  = String
