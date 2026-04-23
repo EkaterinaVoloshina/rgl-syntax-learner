@@ -33,6 +33,7 @@ type Condition = [GFTag]
 data AnnotatedTypeTable = ATab GFTag UDTag [AnnotatedTypeTable] | ANode GFTag UDTag Bool Condition | AEmptyNode
     deriving (Show, Eq)
 
+data ParamTable = ParamT String [ParamTable] | ParamN String deriving (Show, Eq)
 
 exceptions = [P (P (Vr (identS "vp")) (LIdent (rawIdentS "c2"))) (LIdent (rawIdentS "s"))]
 
@@ -43,22 +44,30 @@ eval gr cfg trees patts oType (Just fun) = (fromIntegral (length (filter (`elem`
         (L _ abs) = fromJust f
         (R rs) = unpack abs
         headType = showIdent (idx (head patts))
-        getMapTypes (RecType ts) = Map.fromList (map (\(LIdent l, _, t) -> (showRawIdent l, constructTable (findType l t) gr (toTitle (cfgIso3 cfg)))) ts)
+        getMapTypes (RecType ts) = Map.fromList (map (\(LIdent l, _, t) -> (showRawIdent l, concatMap (\x -> constructTable x gr cfg (toTitle (cfgIso3 cfg))) (constParam (findType cfg l t)))) ts)
 
         --patts1 = map (\(x, y) -> ((cfgDefaults cfg) cfg x, (cfgDefaults cfg) cfg y)) patts
-        args' = Map.fromList (map (\p -> (showIdent (idx p), getMapTypes (var_type p))) patts)
+        args' =  Map.fromList (map (\p -> (showIdent (idx p), getMapTypes (var_type p))) patts)
 
-        result = concatMap (\x -> map (\y -> (fst x, y)) (snd x)) ( concatMap (evalTerm gr cfg oType args') rs)
+        result = concatMap (\x -> map (\y -> (fst x, y)) (snd x)) (concatMap (evalTerm gr cfg oType args') rs)
         patts' = map (getUpdatedPatterns patts headType) result
 
         res = query cfg trees patts
-
         res' = nub $ concatMap (query cfg trees) patts'
 
         unpack (Abs _ _ abs) = unpack abs
         unpack abs = abs
 
         toTitle (c:cs) = toUpper c:cs
+
+constParam [[]] = []
+constParam xs | (nub $ map length xs) == [1] = nub $ map (\[x] -> ParamN x) xs
+constParam xs = map (uncurry getParamT) (Map.toList $ Map.fromListWith(++) (map (\(x':xs') -> (x', [xs'])) xs))
+    where 
+        getParamT x [[]] = ParamN x
+        getParamT x y  =  ParamT x (constParam y)
+
+
 
 -- TODO: non binary
 getUpdatedPatterns patts head  ((b1, b2), (p1, p2)) = if head == b1 then [update b1 (Just b2) (toFeat p1) (findPattern b1 patts), update b2 Nothing (toFeat p2) (findPattern b2 patts)] else [update b2 Nothing (toFeat p2) (findPattern b2 patts), update b1 (Just b2) (toFeat p1) (findPattern b1 patts)]
@@ -103,26 +112,26 @@ equalTrees (ANode gf ud b1 cond) (ANode gf' _ b2 cond') | gf == gf' = (True, ANo
 equalTrees t t' = (False, t)
 
 
-evalToUD (ATab gf ud t) = map mapT (concatMap evalToUD t)
+evalToUD cfg (ATab gf ud t) = map mapT (concatMap (evalToUD cfg) t)
     where mapT ([], cond) = ([], cond)
           mapT  (x, cond)  = (ud ++ x, cond)
-evalToUD (ANode gf ud True cond) = [(ud, concatMap (filter (/= ("", "")) . lookupUDTag) cond)]
-evalToUD (ANode gf ud False cond) = []
-evalToUD AEmptyNode = []
+evalToUD cfg (ANode gf ud True cond) = [(ud, concatMap (filter (/= ("", "")) . lookupUDTag cfg) cond)]
+evalToUD cfg (ANode gf ud False cond) = []
+evalToUD cfg AEmptyNode = []
 
 evalTerm gr cfg t args (LIdent ident, (_, f)) = map getPatts res
     where
         toTitle (c:cs) = toUpper c:cs
-        getMapTypes (RecType ts) = Map.fromList (map (\(LIdent l, _, t) -> (showRawIdent l, constructTable (findType l t) gr (toTitle (cfgIso3 cfg)))) ts)
+        getMapTypes (RecType ts) =  Map.fromList (map (\(LIdent l, _, t) -> (showRawIdent l, concatMap (\x -> constructTable x gr cfg (toTitle (cfgIso3 cfg)))  (constParam $ findType cfg l t))) ts)
         t' = concatMap filterFields $ fromJust (Map.lookup (showRawIdent ident) (getMapTypes t))
         res = interpretFun args t' [] f
 
         patt' [] [] = [([], [])]
-        patt' [] ys = map (\(x,_) -> ([], x)) ys
-        patt' xs [] = map (\(x,_) -> (x, [])) xs
+        -- patt' [] ys = map (\(x,_) -> ([], x)) ys
+        -- patt' xs [] = map (\(x,_) -> (x, [])) xs
         patt' xs ys = concat [contrast x y | x <- xs, y <- ys]
         getPatts ((base1, arg1), (base2, arg2)) = ((base1, base2), patt' (getUD arg1) (getUD arg2))
-        getUD = concatMap evalToUD
+        getUD = concatMap (evalToUD cfg)
 
 
 contrast (tags1, cond1) (tags2, cond2) | and check1 && and check2 = [(tags1 ++ concat add2, tags2 ++ concat add1)]
@@ -176,10 +185,10 @@ interpretFun args t vars x = []
 interpret args vars vv ts cond (S s1@(T _ _) s2) = interpret args vars (vv' s2) ts cond s1
     where vv' (P (Vr id) (LIdent id2)) = ((map getValues (fromJust (Map.lookup (showRawIdent id2) (fromJust (Map.lookup (showIdent id) args))))):vv)
           vv' (Vr id) = fromJust (Map.lookup (showIdent id) vars):vv
-          vv' x = trace (show "I am here " ++ show x) $ []
+          vv' x = trace (show "vars: " ++ show x) $ []
 interpret args vars vv ts cond (S s1 s2) = interpret args vars vv values cond s2
     where values = interpret args vars vv ts cond s1
-interpret args vars vv [] cond p@(P (Vr id) (LIdent id2)) =  evalRecord (map (\x -> (True, toAnnotated x, x)) values)
+interpret args vars vv [] cond p@(P (Vr id) (LIdent id2)) = evalRecord (map (\x -> (True, toAnnotated x, x)) values)
     where
         values = fromJust (Map.lookup (showRawIdent id2) (fromJust (Map.lookup (showIdent id) args)))
         toAnnotated (Tab gf ud ts) = ATab gf ud (map toAnnotated ts)
@@ -187,7 +196,7 @@ interpret args vars vv [] cond p@(P (Vr id) (LIdent id2)) =  evalRecord (map (\x
         toAnnotated EmptyNode = AEmptyNode
 
         evalRecord ts | showRawIdent id2 == "s" = ts
-        evalRecord ts =  nub $ concatMap (sortTS cond (map getValues values)) ts
+        evalRecord ts = nub $ concatMap (sortTS cond (map getValues values)) ts
 
 interpret args vars vv ts cond (P (Vr id) (LIdent id2)) = nub $ concatMap (sortTS cond (map getValues values)) ts
     where
@@ -195,9 +204,9 @@ interpret args vars vv ts cond (P (Vr id) (LIdent id2)) = nub $ concatMap (sortT
         filterVal (Tab _ [("", "")] children) = children
         filterVal x = [x]
 
-interpret args vars vv ts cond (P p (LIdent id2)) =  concatMap (sortTS cond [showRawIdent id2]) ts'
+interpret args vars vv ts cond (P p (LIdent id2)) = concatMap (sortTS cond [showRawIdent id2]) ts'
     where ts' = interpret args vars vv ts cond p
-interpret args vars vv ts cond (Vr id)  =  nub $ concatMap (sortTS cond values) ts
+interpret args vars vv ts cond (Vr id)  = nub $ concatMap (sortTS cond values) ts
     where
           values = fromMaybe [] (Map.lookup (showIdent id) vars)
 
@@ -224,15 +233,16 @@ interpret args vars vv ts _ x = concatMap mapT ts
     where mapT (b, t, Tab gf ud ts') = map (\t' -> (b, t, t')) ts'
           mapT (b, t, _) = [(b, t, EmptyNode)]
 
-findType l x | null all_labels = findType' x
-    where all_labels = [ud_tag t | t <- all_tags, label t == ident2label (identS (showRawIdent l))]
-findType l (Sort id) | showIdent id == "Str" = [showRawIdent l]
-findType l x = showRawIdent l : findType' x
-findType' (Sort id) | showIdent id /= "Str" = [showIdent id]
-findType' (QC (_, id)) = [showIdent id]
-findType' (Table (QC (_, id)) t) = (showIdent id ):(findType' t)
-findType' (RecType ts)  = concatMap (\(LIdent id,_,t) -> findType id t) ts
-findType' _ = []
+findType cfg l (Sort id) | showIdent id == "Str" = [[showRawIdent l]]
+findType cfg l x | null all_labels = findType' cfg x
+    where all_labels = [ud_tag t | t <- cfgMapping cfg, label t == ident2label (identS (showRawIdent l))]
+findType cfg l x = map (\ls -> showRawIdent l : ls) (findType' cfg x)
+findType' cfg (Sort id) | showIdent id /= "Str" = [[showIdent id]]
+findType' cfg (QC (_, id)) = [[showIdent id]]
+findType' cfg (Table (QC (_, id)) t) = map (showIdent id:) (findType' cfg t)
+findType' cfg (RecType ts)  = concatMap (\(LIdent id,_,t) -> findType cfg id t) ts
+findType' cfg _ = [[]]
+
 
 
 sortTS cond v (True, t, t')  = matchTypeTable cond v t t'
@@ -269,41 +279,59 @@ annotate False cond (Node gf ud) t@(ANode gf' _ _ cond') | gf == gf' = ANode gf'
 annotate True cond (Node gf ud) t@(ANode gf' _ _ cond') | gf == gf' = ANode gf' ud True (cond' ++ cond)
 annotate _ cond cur t = t
 
+constructTable :: ParamTable -> Grammar -> Config -> [Char] -> [TypeTable]
+constructTable (ParamN x) gr cfg lang = case lookupValues x gr lang of
+    [] -> [Node x (lookupRecord cfg x)]
+    t -> map mapValuesToNode t
+    where mapValuesToNode [y] = Node y (lookupUDTag cfg y)
+          mapValuesToNode (y:y2:ys) = Node (y ++ " " ++ y2) (lookupUDTag cfg y ++ lookupUDTag cfg y2)
+constructTable (ParamT x xs) gr cfg lang =
+    case lookupValues x gr lang of
+        [] -> [Tab x (lookupRecord cfg x) (concatMap (\x -> constructTable x gr cfg lang) xs)]
+        t -> map mapValuesToTab t
+    where mapValuesToTab [y] = Tab y (lookupUDTag cfg y) (concatMap (\x -> constructTable x gr cfg lang) xs)
+          mapValuesToTab (y:y2:ys) = Tab (y ++ " " ++ y2) (lookupUDTag cfg y ++ lookupUDTag cfg y2) (concatMap (\x -> constructTable x gr cfg lang) xs)
+            -- Tab y (lookupUDTag y) [Tab y2 (lookupUDTag y2) (constructTable xs gr lang)] 
 
 
-
-constructTable :: [GFTag] -> Grammar -> String -> [TypeTable]
-constructTable []     gr lang = [EmptyNode]
+{-constructTable :: [GFTag] -> Grammar -> Config -> String -> [[TypeTable]]
+constructTable []     gr cfg lang = [[EmptyNode]]
 -- special case for Str
 --constructTable ["Str"] gf lang = 
-constructTable [x]    gr lang = case lookupValues x gr lang of
-    [] -> [Node x (lookupRecord x)]
-    t -> map mapValuesToNode t
-    where mapValuesToNode [y] = Node y (lookupUDTag y)
-          mapValuesToNode (y:y2:ys) = Node (y ++ " " ++ y2) (lookupUDTag y ++ lookupUDTag y2)
+constructTable [x]    gr cfg lang = case lookupValues x gr lang of
+    [] -> [[Node x (lookupRecord cfg x)]]
+    t -> [map mapValuesToNode t]
+    where mapValuesToNode [y] = Node y (lookupUDTag cfg y)
+          mapValuesToNode (y:y2:ys) = Node (y ++ " " ++ y2) (lookupUDTag cfg y ++ lookupUDTag cfg y2)
 -- special case for Str
-constructTable (x:"Str":[]) gr lang = case lookupValues x gr lang of
-        [] -> [Node x (lookupRecord x)]
-        t  -> map mapValuesToNode t
+constructTable [x, "Str"] gr cfg lang = case lookupValues x gr lang of
+        [] -> [[Node x (lookupRecord cfg x)]]
+        t  -> [map mapValuesToNode t]
     where
-            mapValuesToNode [y] = Node y (lookupUDTag y)
-            mapValuesToNode (y:y2:ys) = Node (y ++ " " ++ y2) (lookupUDTag y ++ lookupUDTag y2)
-constructTable (x:xs) gr lang = 
+            mapValuesToNode [y] = Node y (lookupUDTag cfg y)
+            mapValuesToNode (y:y2:ys) = Node (y ++ " " ++ y2) (lookupUDTag cfg y ++ lookupUDTag cfg y2)
+constructTable (x:"Str":xs) gr cfg lang = case lookupValues x gr lang of
+        [] -> [Node x (lookupRecord cfg x)] : (constructTable xs gr cfg lang)
+        t  -> (map mapValuesToNode t) :  (constructTable xs gr cfg lang)
+    where
+            mapValuesToNode [y] = Node y (lookupUDTag cfg y)
+            mapValuesToNode (y:y2:ys) = Node (y ++ " " ++ y2) (lookupUDTag cfg y ++ lookupUDTag cfg y2)
+constructTable (x:xs) gr cfg lang = 
     case lookupValues x gr lang of
-        [] -> [Tab x (lookupRecord x) (constructTable xs gr lang)]
-        t -> map mapValuesToTab t
-    where mapValuesToTab [y] = Tab y (lookupUDTag y) (constructTable xs gr lang)
-          mapValuesToTab (y:y2:ys) = Tab (y ++ " " ++ y2) (lookupUDTag y ++ lookupUDTag y2) (constructTable xs gr lang)
-            -- Tab y (lookupUDTag y) [Tab y2 (lookupUDTag y2) (constructTable xs gr lang)]
+        [] -> [[Tab x (lookupRecord cfg x) (concat $ constructTable xs gr cfg lang)]]
+        t -> [map mapValuesToTab t]
+    where mapValuesToTab [y] = Tab y (lookupUDTag cfg y) (concat $ constructTable xs gr cfg lang)
+          mapValuesToTab (y:y2:ys) = Tab (y ++ " " ++ y2) (lookupUDTag cfg y ++ lookupUDTag cfg y2) (concat (constructTable xs gr cfg lang))
+            -- Tab y (lookupUDTag y) [Tab y2 (lookupUDTag y2) (constructTable xs gr lang)] -}
 
 
-lookupUDTag :: GFTag -> UDTag
-lookupUDTag l = getTag [ud_tag t | t <- all_tags, ident t == (identS l)]
+lookupUDTag :: Config -> GFTag -> UDTag
+lookupUDTag cfg l = getTag [ud_tag t | t <- cfgMapping cfg, ident t == (identS l)]
     where getTag [] = [("", "")]
           getTag (x:xs) = x
 
-lookupRecord :: GFTag -> UDTag
-lookupRecord l = getTag [ud_tag t | t <- all_tags, label t == ident2label (identS l)]
+lookupRecord :: Config -> GFTag -> UDTag
+lookupRecord cfg l = getTag [ud_tag t | t <-  cfgMapping cfg, label t == ident2label (identS l)]
     where getTag [] = [("", "")]
           getTag (x:xs) = x
 
@@ -322,6 +350,6 @@ getValues (Tab tag _ _) = tag
 getValues x = ""
 
 
-filterFields (Tab x _ ts) | isLower (head x) = ts
+filterFields (Tab x _ ts) | isLower (head x) = concatMap filterFields ts
 filterFields (Node x _) | isLower (head x) = []
 filterFields x = [x]
