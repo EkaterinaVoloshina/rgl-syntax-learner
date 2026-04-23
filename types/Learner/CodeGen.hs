@@ -513,9 +513,17 @@ combineTerms gr funName ts mb_var_isPre n_p cn_ty argNames =
         reorderTables args t                          = reconstruct args ty t
           where
             reconstruct args (Table arg res) t =
-              T TRaw [(PV v,reconstruct args res t)]
+              case pick arg args of
+                Nothing       -> T TRaw [(PV identW,reconstruct args res t)]
+                Just (v,args) -> T TRaw [(PV v,     reconstruct args res t)]
               where
-                v = fromMaybe identW (lookup arg args)
+                pick x []     = Nothing
+                pick x ((x',y):rest)
+                  | x == x'   = Just (y,rest)
+                  | otherwise = case pick x rest of
+                                  Nothing       -> Nothing
+                                  Just (z,rest) -> Just (z,(x',y):rest)
+
             reconstruct args _               t = t
 
 combineOneTerms gr funName [] mb_var_isPre a_p n_p argNames = (defLinType,defLinType,False,Nothing)
