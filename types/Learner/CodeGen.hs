@@ -76,7 +76,7 @@ learnPattern cfg cnc gr name cctxt = do
 
     putStrLn ("== " ++ showIdent name ++ " ==" )
     -- putStrLn ("Patterns: ")
-    -- mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
+    -- mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) (patterns cctxt)
 
     let res = fmap (Map.fromListWith (++)) $ runGenM $ do
                 patt <- anyOf (patterns cctxt)
@@ -648,6 +648,17 @@ generateTerm gr env lbls (Sort s)
                       case t2 of
                         Empty -> return t1
                         _     -> return (C t1 t2)
+generateTerm gr env lbls ty0@(Q c) = select env
+  where
+    select []           =
+      case lookupOrigInfo gr c of
+        Ok (mn,ResParam (Just (L _ ((fn,ctxt):_))) _)
+            -> foldl (\t (_,_,ty) -> App t (generateTerm gr env lbls ty)) (QC (mn,fn)) ctxt
+        _   -> FV []
+    select ((t,ty):env) =
+      case firstValue gr env [] t ty ty0 of
+        Just t  -> t
+        Nothing -> select env
 generateTerm gr env lbls ty0@(QC c) = select env
   where
     select []           =
