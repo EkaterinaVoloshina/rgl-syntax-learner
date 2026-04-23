@@ -211,20 +211,16 @@ learnPattern cfg cnc gr name cctxt = do
            dataset' = map (selectVars subst0'') dataset
            ins@(freq, accuracy, _, t, dt) = instantiate types dim_dataset dataset' t0 subst0''
        in
-        if null rest || accuracy > cfgSyntaxStopping cfg
-            then do when (cfgVerbose cfg) $ do
-                      putStrLn ""
-                      putStrLn ("Found term with accuracy "++show accuracy++":")
-                      print (pp (raw t))
-                      putStrLn ""
-
-                    if accuracy - acc0 > 0.01
-                     then return (t0', freq0)
-                    else return (t, freq)
-            else do
-              if accuracy - acc0 > 0.01
-              then cross_breed types dim_dataset dataset ins t0 subst0'' rest
-              else cross_breed types dim_dataset dataset ins0 t0 subst0 rest
+        if abs(accuracy - acc0) < 0.01
+          then cross_breed types dim_dataset dataset ins0 t0 subst0 rest
+          else if null rest || accuracy > cfgSyntaxStopping cfg
+                 then do when (cfgVerbose cfg) $ do
+                           putStrLn ""
+                           putStrLn ("Found term with accuracy "++show accuracy++":")
+                           print (pp (raw t))
+                           putStrLn ""
+                         return (t, freq)
+                 else cross_breed types dim_dataset dataset ins t0 subst0'' rest
 
 
 type POS  = String
