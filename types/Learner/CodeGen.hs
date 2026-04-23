@@ -76,7 +76,7 @@ learnPattern cfg cnc gr name cctxt = do
 
     putStrLn ("== " ++ showIdent name ++ " ==" )
     -- putStrLn ("Patterns: ")
-    -- mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) patts
+    -- mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) (patterns cctxt)
 
     let res = fmap (Map.fromListWith (++)) $ runGenM $ do
                 patt <- anyOf (patterns cctxt)
@@ -207,24 +207,27 @@ learnPattern cfg cnc gr name cctxt = do
 
 
     cross_breed types dim_dataset dataset ins0@(freq0,acc0,_,t0',_) t0 subst0 ((_,_,subst0',_,_):rest) =
-       let subst0'' = subst0++subst0'
+       let subst0'' = subst0++map (rename 1 subst0) subst0'
            dataset' = map (selectVars subst0'') dataset
            ins@(freq, accuracy, _, t, dt) = instantiate types dim_dataset dataset' t0 subst0''
        in
-        if null rest || accuracy > cfgSyntaxStopping cfg
-            then do when (cfgVerbose cfg) $ do
-                      putStrLn ""
-                      putStrLn ("Found term with accuracy "++show accuracy++":")
-                      print (pp (raw t))
-                      putStrLn ""
-
-                    if accuracy - acc0 > 0.01
-                     then return (t0', freq0)
-                    else return (t, freq)
-            else do
-              if accuracy - acc0 > 0.01
-              then cross_breed types dim_dataset dataset ins t0 subst0'' rest
-              else cross_breed types dim_dataset dataset ins0 t0 subst0 rest
+        if abs(accuracy - acc0) < 0.01
+          then cross_breed types dim_dataset dataset ins0 t0 subst0 rest
+          else if null rest || accuracy > cfgSyntaxStopping cfg
+                 then do when (cfgVerbose cfg) $ do
+                           putStrLn ""
+                           putStrLn ("Found term with accuracy "++show accuracy++":")
+                           print (pp (raw t))
+                           putStrLn ""
+                         return (t, freq)
+                 else cross_breed types dim_dataset dataset ins t0 subst0'' rest
+       where
+         rename i subst x@(k,Vr v)
+           | any (\(_,Vr w) -> w==v') subst = rename (i+1) subst x
+           | otherwise                      = x
+           where
+             v' | i == 1    = v
+                | otherwise = identS (showIdent v++show i)
 
 
 type POS  = String
@@ -510,9 +513,17 @@ combineTerms gr funName ts mb_var_isPre n_p cn_ty argNames =
         reorderTables args t                          = reconstruct args ty t
           where
             reconstruct args (Table arg res) t =
-              T TRaw [(PV v,reconstruct args res t)]
+              case pick arg args of
+                Nothing       -> T TRaw [(PV identW,reconstruct args res t)]
+                Just (v,args) -> T TRaw [(PV v,     reconstruct args res t)]
               where
-                v = fromMaybe identW (lookup arg args)
+                pick x []     = Nothing
+                pick x ((x',y):rest)
+                  | x == x'   = Just (y,rest)
+                  | otherwise = case pick x rest of
+                                  Nothing       -> Nothing
+                                  Just (z,rest) -> Just (z,(x',y):rest)
+
             reconstruct args _               t = t
 
 combineOneTerms gr funName [] mb_var_isPre a_p n_p argNames = (defLinType,defLinType,False,Nothing)
@@ -648,6 +659,17 @@ generateTerm gr env lbls (Sort s)
                       case t2 of
                         Empty -> return t1
                         _     -> return (C t1 t2)
+generateTerm gr env lbls ty0@(Q c) = select env
+  where
+    select []           =
+      case lookupOrigInfo gr c of
+        Ok (mn,ResParam (Just (L _ ((fn,ctxt):_))) _)
+            -> foldl (\t (_,_,ty) -> App t (generateTerm gr env lbls ty)) (QC (mn,fn)) ctxt
+        _   -> FV []
+    select ((t,ty):env) =
+      case firstValue gr env [] t ty ty0 of
+        Just t  -> t
+        Nothing -> select env
 generateTerm gr env lbls ty0@(QC c) = select env
   where
     select []           =

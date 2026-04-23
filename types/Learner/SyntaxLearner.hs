@@ -44,24 +44,18 @@ learn cfg = do
     
     let res = []
     -- block of functions that handle CN type --
-    (gr, adjCN, advCN, positA, res) <- learnCN cfg cnc gr noSmarts trees res
+    (gr, adjCN, advCN, positA, useN, res) <- learnCN cfg cnc gr noSmarts trees res
 
     (gr, adAP, res) <- learnAdAP cfg cnc gr noSmarts trees res
     --(advAP, threeArgs) <- learnAdvAP lang cnc gr mapping noSmarts trees
 
-    let useN = learnUseN cfg
-
     -- block of functions that handle NP type -- 
-
-
     (gr, detCN, np) <- learnDetCN cfg cnc gr noSmarts trees res
     (gr, prepNP, res) <- learnPrepNP cfg cnc gr noSmarts trees res
 
     -- block of functions that handle VP type -- 
-    (gr, complSlash, advVP, res) <- learnComplSlash cfg cnc gr noSmarts trees res
+    (gr, complSlash, advVP, slashV2a, res) <- learnComplSlash cfg cnc gr noSmarts trees res
     (gr, predVP, res) <- learnPredVP cfg cnc gr noSmarts trees res
-    let slashV2a = learnSlashV2a cfg
-
 
     appendFile (cfgResultsFolder cfg </> cfgLangName cfg ++ "_results.txt") (
         "Train Ratio: " ++ show (fromIntegral (length train') / fromIntegral (length train' + length test')) ++ "\n"
@@ -128,19 +122,21 @@ learnCN cfg cnc gr noSmarts trees res = do
         ap_ty | used_isPre = extendTypeWithIsPre ap_ty0
               | otherwise  = ap_ty0
   
-    let positA = Just ("Adjective", [getFun (identS "PositA") [a] def])
+    let positA = Just ("Adjective", [getFun (identS "PositA") [a] (generateTerm gr [(Vr a,a_ty)] [] ap_ty)])
                  where
                    a = identS "a"
-                   def | used_isPre = extendTermWithIsPre (Vr a) True
-                       | otherwise  = Vr a
-    
+
+        useN = Just ("Noun", [getFun (identS "UseN") [n] (generateTerm gr [(Vr n,n_ty)] [] cn_ty)])
+               where
+                 n = identS "n"
+
     gr <- modifyCat cfg gr [("AP",ap_ty),("CN",cn_ty)]
 
     let results = [(name1, eval gr cfg test pattern1 cn_ty adjCN),
                    (name2, eval gr cfg test pattern2 cn_ty advCN)] ++ res
     
 
-    return (gr, adjCN, advCN, positA, results)
+    return (gr, adjCN, advCN, positA, useN, results)
 
 
 learnComplSlash cfg cnc gr noSmarts trees res = do
@@ -184,11 +180,15 @@ learnComplSlash cfg cnc gr noSmarts trees res = do
         (_, complSlash) = combineTerms gr name1 terms1 Nothing v_p vp_ty [idx v_p,idx np_p]
         (_, advVP) = combineTerms gr name2 terms2 Nothing v_p vp_ty [idx v_p,idx adv_p]
 
+        slashV2a = Just ("Verb", [getFun (identS "SlashV2a") [v] (Vr v)])
+                   where
+                     v = identS "v"
+
     gr <- modifyCat cfg gr [("VPSlash",unLock v2_ty),("VP",vp_ty)]
     let results = [(name1, eval gr cfg test pattern1 vp_ty complSlash),
                    (name2, eval gr cfg test pattern2 vp_ty advVP)] ++ res
 
-    return (gr, complSlash, advVP, results)
+    return (gr, complSlash, advVP, slashV2a, results)
     where
 
       unLock (RecType ltys) = RecType [x | x@(l,xs,ty) <- ltys, isNothing (isLockLabel l)]
@@ -215,11 +215,6 @@ learnPredVP cfg cnc gr noSmarts trees res = do
 
     let results = ((name, eval gr cfg test pattern cl_ty fs):res)
     return (gr, fs, results)
-
-
-learnSlashV2a cfg = Just ("Verb", [getFun (identS "SlashV2a") [v] (Vr v)])
-  where
-    v = identS "v"
 
 learnAdAP cfg cnc gr snoSmarts trees res = do
     let (train, test) = trees
@@ -273,10 +268,6 @@ learnPrepNP cfg cnc gr noSmarts trees res = do
 lookupParam gr cfg param = case allParamValues gr (QC (MN  (identS (cfgLangModuleFileName cfg "Res")), identS param)) of
     Ok m -> Just m
     Bad msg -> Nothing
-
-learnUseN cfg = Just ("Noun", [getFun (identS "UseN") [n] (Vr n)])
-  where
-    n = identS "n"
 
 learnDetCN cfg cnc gr noSmarts trees res = do
     let (train, test) = trees
