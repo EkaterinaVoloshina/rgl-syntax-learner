@@ -95,7 +95,6 @@ learn cfg = do
 learnCN cfg cnc gr noSmarts trees res = do
     let (train, test) = trees
 
-    
     n_ty <- lookupResDef gr (cnc,identS "N")
     let n_p = QueryPattern {pos=Just ["NOUN"], rel=Nothing, morpho=Nothing, idx=identS "cn", var_type=n_ty, lin_order=NA}
 
@@ -285,7 +284,7 @@ learnDetCN cfg cnc gr noSmarts trees res = do
         (dQuant, det_ty) = detQuant num_ty quant_ty
 
     cn_ty <- lookupResDef gr (cnc,identS "CN")
-    let np_ty = mkNPType cn_ty
+    let np_ty = addNum (filterNumSp cn_ty) det_ty
 
     let name = identS "DetCN"
 
@@ -303,12 +302,15 @@ learnDetCN cfg cnc gr noSmarts trees res = do
 
     return (gr, Just ("Noun", [detCN, dQuant, def, indef, numSg, numPl]), [])
     where
-      mkNPType (Table (QC (_,c)) ty)
-        | c == identS "Number"  = ty
-        | c == identS "Species" = ty
-      mkNPType (RecType ltys) =
-        RecType [(l,xs,mkNPType ty) | (l,xs,ty) <- ltys, isNothing (isLockLabel l)]
-      mkNPType ty = composSafeOp mkNPType ty
+      filterNumSp (Table (QC (_,c)) ty)
+        | c == identS "Number"  = composSafeOp filterNumSp ty
+        | c == identS "Species" = composSafeOp filterNumSp ty
+      filterNumSp (RecType ltys) =
+        RecType [(l,xs,filterNumSp ty) | (l,xs,ty) <- ltys, isNothing (isLockLabel l)]
+      filterNumSp ty = composSafeOp filterNumSp ty
+
+      addNum (RecType ltys1) (RecType ltys2) =
+        RecType (ltys1 ++ [x | x@(l,_,QC (_,id)) <- ltys2, id == identS "Number"])
 
 
 modifyCat cfg gr lincats = do

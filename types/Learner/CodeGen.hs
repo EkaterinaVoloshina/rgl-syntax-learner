@@ -355,16 +355,15 @@ createPlaceholder cfg gr lbl con_typ fun1 con1 fun2 con2 =
                                              , let (QC (_,f),xs) = appForm value
                                              , f == con]))
 
-    q_con_typ = (cRes, con_typ)
     typ = RecType ( (theLinLabel, [], Sort cStr)
                   : if null values
                       then []
                       else [(lbl, [], QC q_con_typ)])
 
-    values =
-      case lookupOrigInfo gr q_con_typ of
-        Ok (_,ResParam _ (Just (ts,_))) -> ts
-        _                               -> []
+    (q_con_typ,values) =
+      case lookupOrigInfo gr (cRes, con_typ) of
+        Ok (mn,ResParam _ (Just (ts,_))) -> ((mn, con_typ)  ,ts)
+        _                                -> ((cRes, con_typ),[])
 
 createNum cfg gr =
   createPlaceholder cfg gr
