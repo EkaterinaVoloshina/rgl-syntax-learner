@@ -303,8 +303,8 @@ learnDetCN cfg cnc gr noSmarts trees res = do
     return (gr, Just ("Noun", [detCN, dQuant, def, indef, numSg, numPl]), [])
     where
       filterNumSp (Table (QC (_,c)) ty)
-        | c == identS "Number"  = composSafeOp filterNumSp ty
-        | c == identS "Species" = composSafeOp filterNumSp ty
+        | c == identS "Number"  = filterNumSp ty
+        | c == identS "Species" = filterNumSp ty
       filterNumSp (RecType ltys) =
         RecType [(l,xs,filterNumSp ty) | (l,xs,ty) <- ltys, isNothing (isLockLabel l)]
       filterNumSp ty = composSafeOp filterNumSp ty
