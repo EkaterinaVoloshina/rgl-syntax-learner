@@ -37,8 +37,8 @@ data ParamTable = ParamT String [ParamTable] | ParamN String deriving (Show, Eq)
 
 exceptions = [P (P (Vr (identS "vp")) (LIdent (rawIdentS "c2"))) (LIdent (rawIdentS "s"))]
 
-eval gr cfg trees patts oType Nothing = (-1, [], [])
-eval gr cfg trees patts oType (Just fun) = (fromIntegral (length (filter (`elem` res') res)) / fromIntegral (length res), filter (`notElem` res') res, result)
+eval gr cfg trees patts oType Nothing = (-1, [], [], 0)
+eval gr cfg trees patts oType (Just fun) = (fromIntegral (length (filter (`elem` res') res)) / fromIntegral (length res), filter (`notElem` res') res, result, length res)
     where
         (CncFun _ f _ _) = snd $ head (snd fun)
         (L _ abs) = fromJust f
@@ -50,7 +50,7 @@ eval gr cfg trees patts oType (Just fun) = (fromIntegral (length (filter (`elem`
         args' =  Map.fromList (map (\p -> (showIdent (idx p), getMapTypes (var_type p))) patts)
 
         result = concatMap (\x -> map (\y -> (fst x, y)) (snd x)) (concatMap (evalTerm gr cfg oType args') rs)
-        patts' = map (getUpdatedPatterns patts headType) result
+        patts' =  map (getUpdatedPatterns patts headType) result
 
         res = query cfg trees patts
         res' = nub $ concatMap (query cfg trees) patts'
@@ -119,7 +119,7 @@ evalToUD cfg (ANode gf ud True cond) = [(ud, concatMap (filter (/= ("", "")) . l
 evalToUD cfg (ANode gf ud False cond) = []
 evalToUD cfg AEmptyNode = []
 
-evalTerm gr cfg t args (LIdent ident, (_, f)) = map getPatts res
+evalTerm gr cfg t args (LIdent ident, (_, f)) = trace (show f) $ map getPatts res
     where
         toTitle (c:cs) = toUpper c:cs
         getMapTypes (RecType ts) =  Map.fromList (map (\(LIdent l, _, t) -> (showRawIdent l, concatMap (\x -> constructTable x gr cfg (toTitle (cfgIso3 cfg)))  (constParam $ findType cfg l t))) ts)
@@ -155,12 +155,10 @@ interpretFun args t vars (T TRaw ts) = concatMap getF ts
         stepF (Tab _ _ ts') = ts'
         stepF _ = []
 
-interpretFun args t vars c@(C x1 x2) = getBases (stripExceptions c)
+interpretFun args t vars c@(C x1 x2) =  getBases (stripExceptions c)
      where
         valMap = Map.fromList vars
         f xs = compareTrees (map (\(_,x,_) -> x) xs)
-
-
 
         stripExceptions (C c1 c2) | c1 `elem` exceptions = c2
         stripExceptions (C c1 c2) | c2 `elem` exceptions =  c1
@@ -206,7 +204,7 @@ interpret args vars vv ts cond (P (Vr id) (LIdent id2)) = nub $ concatMap (sortT
 
 interpret args vars vv ts cond (P p (LIdent id2)) = concatMap (sortTS cond [showRawIdent id2]) ts'
     where ts' = interpret args vars vv ts cond p
-interpret args vars vv ts cond (Vr id)  = nub $ concatMap (sortTS cond values) ts
+interpret args vars vv ts cond (Vr id)  = trace ("Values: "++ show id ++ " " ++ show values) nub $ concatMap (sortTS cond values) ts
     where
           values = fromMaybe [] (Map.lookup (showIdent id) vars)
 
@@ -218,9 +216,9 @@ interpret args vars vv ts cond (App (QC (_, v1)) (Vr id)) = concatMap (sortTS' c
     where (vals:vv') = vv
 
 
-interpret args vars (v:vv) ts cond (T TRaw rows) = concatMap interpretWithCond rows
-    where interpretWithCond (PP (_, id) _, t) = interpret args vars (v:vv) ts ((showIdent id):cond) t
-          interpretWithCond (PV id, t) = interpret args vars (v:vv) ts cond t
+interpret args vars (v:vv) ts cond (T TRaw rows) = trace ("QC: " ++ show v ++ " " ++ show (filter (\(x,_,_) -> x) (concatMap interpretWithCond rows))) $ concatMap interpretWithCond rows
+    where interpretWithCond (PP (_, id) _, t) = interpret args vars ((nub v):vv) ts (nub $ (showIdent id):cond) t
+          interpretWithCond (PV id, t) = interpret args vars ((nub v):vv) ts cond t
           interpretWithCond (_, t) = interpret args vars vv ts cond t
 
           getV [] v = v
@@ -249,7 +247,7 @@ sortTS cond v (True, t, t')  = matchTypeTable cond v t t'
 sortTS cond v (False, t, _)  = [(False, t, EmptyNode)]
 
 
-sortTS' cond v1 vs (True, t, t') | found = matchTypeTable (c ++ cond) v' t t'
+sortTS' cond v1 vs (True, t, t') | found = matchTypeTable (nub $ c ++ cond) v' t t'
     where v' = map (\v -> showIdent v1 ++ " " ++ v) vs
           (found, c) = findVal vs t'
           findVal [] t = (False, [])
@@ -272,11 +270,11 @@ annotate False cond (Tab gf _ _) t@(ATab gf' ud ts) | gf == gf' = ATab gf ud (ma
         changeToFalse t@(ANode gf ud _ cond') = ANode gf ud False cond'
 annotate True cond (Tab gf _ _) t@(ATab gf' ud ts) | gf == gf' = ATab gf ud (map (addCond cond) ts)
     where
-        addCond cond (ATab gf ud ts) = ATab gf ud (map (addCond cond) ts)
-        addCond cond (ANode gf ud t cond') = ANode gf ud t (cond ++ cond')
+        addCond cond (ATab gf ud ts) = ATab gf ud (nub $ map (addCond cond) ts)
+        addCond cond (ANode gf ud t cond') = ANode gf ud t (nub $ cond ++ cond')
 annotate b cond cur t@(ATab gf ud ts) = ATab gf ud (map (annotate b cond cur) ts)
 annotate False cond (Node gf ud) t@(ANode gf' _ _ cond') | gf == gf' = ANode gf' ud False cond'
-annotate True cond (Node gf ud) t@(ANode gf' _ _ cond') | gf == gf' = ANode gf' ud True (cond' ++ cond)
+annotate True cond (Node gf ud) t@(ANode gf' _ _ cond') | gf == gf' = ANode gf' ud True (nub $ cond' ++ cond)
 annotate _ cond cur t = t
 
 constructTable :: ParamTable -> Grammar -> Config -> [Char] -> [TypeTable]

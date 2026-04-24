@@ -20,6 +20,7 @@ import Data.List
 import GF.Data.Operations
 import GF.Infra.Option
 import GF.Grammar.Printer
+import Data.List.UniqueStrict(count)
 
 
 
@@ -61,7 +62,7 @@ learn cfg = do
         "Train Ratio: " ++ show (fromIntegral (length train') / fromIntegral (length train' + length test')) ++ "\n"
         ++ "Train Size: " ++ show (cfgTrainSize cfg) ++ "\n"
         ++ "Stopping Threshold: " ++ show (cfgSyntaxStopping cfg) ++ "\n"
-        ++ concatMap (\(id, (acc, contr,s)) -> showIdent id ++ "\t" ++ show acc ++ "\nPatterns: \n" ++ concatMap (\x -> show x ++ "\n") s ++ "\nCounterexamples: \n" ++ concatMap (\x -> concatMap (show . ppNode) x ++ ";\n") contr ++ "\n") res
+        ++ concatMap (\(id, (acc, contr,s,total)) -> showIdent id ++ "\t" ++ show acc ++ " " ++ show total ++ "\nPatterns: \n" ++ concatMap (\x -> show x ++ "\n") s ++ "\nCounterexamples: \n" ++ concatMap (\(x, y) -> show y ++ " " ++ show x ++ "\n") (count (map (\[(_,_,_,m1,_), (_,_,_,m2,_)] -> [m1, m2]) contr)) ++ "\n") res
         ++ "\n")
 
     -- block of functions to create modules -- 
