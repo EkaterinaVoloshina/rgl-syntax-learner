@@ -30,7 +30,7 @@ import System.Directory
 import Data.Tree
 import Data.Maybe hiding (fromList)
 import Data.Char(toLower)
-import Data.List (sortOn,mapAccumL,partition,nub,isPrefixOf,isInfixOf,isSuffixOf)
+import Data.List (sortOn,mapAccumL,partition,nub,isPrefixOf,isInfixOf,isSuffixOf, delete)
 import Data.Either (partitionEithers)
 import Control.Monad
 import Control.Applicative hiding (Const)
@@ -75,17 +75,19 @@ pattern2context cfg pattern patts smarts =
 learnPattern cfg cnc gr name cctxt = do
 
     putStrLn ("== " ++ showIdent name ++ " ==" )
-    -- putStrLn ("Patterns: ")
-    -- mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) (patterns cctxt)
+    putStrLn ("Patterns: ")
+    mapM_ (print . hsep . punctuate (pp ';') . map (\(n,_,_) -> ppNode n)) (patterns cctxt)
 
     let res = fmap (Map.fromListWith (++)) $ runGenM $ do
                 patt <- anyOf (patterns cctxt)
 
                 inh <- runGenM $ do
                           ((_,_,_,morpho,_),t,ty) <- anyOf patt
-                          findInh gr cctxt morpho t ty
+                          findInh gr cfg cctxt morpho t ty
 
-                (vs,ts) <- mapAccumM (\vs ((id,_,_,morpho,_),t,ty) -> findStr gr cctxt vs id morpho t ty) [] patt
+                (vs,ts) <- mapAccumM (\vs ((id,_,_,morpho,_),t,ty) -> findStr gr cfg cctxt vs id morpho t ty) [] patt
+
+               -- (vs,ts) <- mapAccumM (\vs ((id,_,_,morpho,_),t,ty) -> findStr gr cctxt vs id morpho t ty) [] patt
                 let str = foldr (\(_,t1) t2 -> case t2 of {Empty -> t1; t2 -> C t1 t2}) Empty (sortOn fst ts)
 
                 return ((str,length vs,length inh),[(reverse vs,inh)])
@@ -211,8 +213,10 @@ learnPattern cfg cnc gr name cctxt = do
            dataset' = map (selectVars subst0'') dataset
            ins@(freq, accuracy, _, t, dt) = instantiate types dim_dataset dataset' t0 subst0''
        in
-        if abs(accuracy - acc0) < 0.01
-          then cross_breed types dim_dataset dataset ins0 t0 subst0 rest
+        if abs(accuracy - acc0) < 0.05
+          then if null rest then 
+            return (t0', freq0)
+            else cross_breed types dim_dataset dataset ins0 t0 subst0 rest
           else if null rest || accuracy > cfgSyntaxStopping cfg
                  then do when (cfgVerbose cfg) $ do
                            putStrLn ""
@@ -607,37 +611,37 @@ split sep (c:cs)
                   []     -> [[c]]
                   (x:xs) -> (c:x):xs
 
-findStr gr cfg vs id morpho t (Sort s) | s == cStr  = return (vs,(id,t))
-findStr gr cfg vs id morpho t (RecType fs) = do
+findStr gr cfg cctxt vs id morpho t (Sort s) | s == cStr  = return (vs,(id,t))
+findStr gr cfg cctxt vs id morpho t (RecType fs) = do
   (l,_,ty) <- anyOf fs
-  morpho <- foldM (flip pop) morpho [v | t <- all_tags, label t==l, v <- ud_tag t]
-  findStr gr cfg vs id morpho (P t l) ty
-findStr gr cfg vs id morpho t (Table arg res) = do
-  v <- findParam gr cfg morpho arg
+  morpho <- foldM (flip pop) morpho [v | t <- cfgMapping cfg, label t==l, v <- ud_tag t]
+  findStr gr cfg cctxt vs id morpho (P t l) ty
+findStr gr cfg cctxt vs id morpho t (Table arg res) = do
+  v <- findParam gr cfg cctxt morpho arg
   let i = length vs+1
       p = Meta i
-  findStr gr cfg ((i,v,arg):vs) id morpho (S t p) res
-findStr gr cfg vs id morpho t ty = empty
+  findStr gr cfg cctxt ((i,v,arg):vs) id morpho (S t p) res
+findStr gr cfg cctxt vs id morpho t ty = empty
 
-findParam gr cfg morpho (QC q) = do
-  (q,ctxt) <- case Map.lookup q (smarts cfg) of
+findParam gr cfg cctxt morpho (QC q) = do
+  (q,ctxt) <- case Map.lookup q (smarts cctxt) of
                 Just ps -> anyOf ps
                 Nothing -> do (mn,info) <- lookupOrigInfo gr q
                               case info of
                                 ResParam (Just (L _ ps)) _ -> do (id,ctxt) <- anyOf ps
                                                                  return ((mn,id),ctxt)
                                 _                          -> raise $ render (ppQIdent Qualified q <+> "has no parameter values defined")
-  morpho <- foldM (flip pop) morpho [v | t <- all_tags, ident t==snd q, v <- ud_tag t]
-  foldM (\t (_,_,ty) -> fmap (App t) (findParam gr cfg morpho ty)) (QC q) ctxt
+  morpho <- foldM (flip pop) morpho [v | t <- cfgMapping cfg, ident t==snd q, v <- ud_tag t]
+  foldM (\t (_,_,ty) -> fmap (App t) (findParam gr cfg cctxt morpho ty)) (QC q) ctxt
 
-findInh gr cfg morpho t ty@(QC q) = do
-  v <- findParam gr cfg morpho ty
+findInh gr cfg cctxt morpho t ty@(QC q) = do
+  v <- findParam gr cfg cctxt morpho ty
   return (t,v,ty)
-findInh gr cfg morpho t (RecType fs) = do
+findInh gr cfg cctxt morpho t (RecType fs) = do
   (l,_,ty) <- anyOf fs
-  morpho  <- foldM (flip pop) morpho [v | t <- all_tags, label t==l, v <- ud_tag t]
-  findInh gr cfg morpho (P t l) ty
-findInh gr cfg morpho t ty = empty
+  morpho  <- foldM (flip pop) morpho [v | t <- cfgMapping cfg, label t==l, v <- ud_tag t]
+  findInh gr cfg cctxt morpho (P t l) ty
+findInh gr cfg cctxt morpho t ty = empty
 
 generateTerm gr env lbls (Prod bt _ arg res) =
   let x = freshVar env arg
@@ -669,7 +673,7 @@ generateTerm gr env lbls ty0@(Q c) = select env
     select ((t,ty):env) =
       case firstValue gr env [] t ty ty0 of
         Just t  -> t
-        Nothing -> select env
+        Nothing -> select env 
 generateTerm gr env lbls ty0@(QC c) = select env
   where
     select []           =
@@ -680,7 +684,7 @@ generateTerm gr env lbls ty0@(QC c) = select env
     select ((t,ty):env) =
       case firstValue gr env [] t ty ty0 of
         Just t  -> t
-        Nothing -> select env
+        Nothing -> select env 
 
 firstValue gr env lbls t (Table arg res) ty0 = do
   t' <- select env
