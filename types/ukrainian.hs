@@ -1,5 +1,5 @@
 import Learner.Shell
 
-main = learnerMain ((defaultConfig "uk" "ukr" "ukranian")
+main = learnerMain ((defaultConfig "uk" "ukr" "ukrainian")
                        { cfgTreebanks = ["SUD_Ukrainian-IU","SUD_Ukrainian-ParlaMint"]
                        })

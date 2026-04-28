@@ -2,7 +2,7 @@ module Learner.CodeGen(readCONLL,Node(..),ppNode,drawTree,
                identS,Ident,
                rawIdentS,RawIdent, unionPatts,
                noSmarts,
-               CodeContext(..), pattern2context, learnPattern, query,
+               CodeContext(..), pattern2context, learnPattern, query, nodes,
                getFun, getModule,
                combineTypes, combineTermsWTypes, combineTerms, combineOneTerms,
                extendTypeWithIsPre, extendTermWithIsPre, modifyDefaultIsPre,
@@ -21,7 +21,7 @@ import GF.Grammar.Printer
 import GF.Grammar.Predef
 import GF.Grammar.Grammar hiding (Rule(..))
 import GF.Grammar.Lockfield
-import GF.Grammar.Macros (termForm,collectOp,composSafeOp,typeFormCnc,defLinType,appForm)
+import GF.Grammar.Macros (termForm,collectOp,composSafeOp,typeFormCnc,defLinType,appForm,typeStr)
 import GF.Compile
 import System.Exit
 import System.Process
@@ -463,6 +463,42 @@ combineTypes ts a_ps n_p = (ap_tys,cn_ty)
     narrow used vr lbl = [(vr,lbls) | (vr',lbl':lbls) <- used
                                     , vr==vr', lbl==lbl']
 
+liftType n_ty cn_ty v t@(Vr v')
+  | v == v' = Just (t,n_ty,cn_ty)
+liftType n_ty cn_ty v (P t lbl) =
+  case liftType n_ty cn_ty v t of
+    Nothing             -> Nothing
+    Just (t,n_ty,cn_ty) -> case (project n_ty lbl, project cn_ty lbl) of
+                             (Just n_ty,Just cn_ty) -> Just (t,n_ty,cn_ty)
+                             _                      -> Nothing
+  where
+    project (RecType ltys) lbl =
+      case [ty | (lbl',_,ty) <- ltys, lbl==lbl'] of
+        (ty:_) -> Just ty
+        _      -> Nothing
+liftType n_ty cn_ty v (S t1 t2) =
+  case liftType n_ty cn_ty v t1 of
+    Nothing             -> Nothing
+    Just (t,Table n_arg n_ty,Table cn_arg cn_ty)
+      | n_arg == cn_arg -> Just (t,n_ty,cn_ty)
+      | otherwise       -> undefined
+liftType n_ty cn_ty v (C t1 t2) =
+  Just (C (maybe t1 thd3 (liftType n_ty cn_ty v t1))
+          (maybe t2 thd3 (liftType n_ty cn_ty v t2))
+       ,typeStr
+       ,typeStr
+       )
+  where
+    thd3 (_,_,x) = x
+liftType n_ty cn_ty v (T (TTyped ty) [(p,t)]) =
+  case liftType n_ty cn_ty v t of
+    Just (t,n_ty,cn_ty) -> Just (T (TTyped ty) [(p,t)]
+                                ,Table ty n_ty
+                                ,Table ty cn_ty
+                                )
+    Nothing             -> Nothing
+liftType n_ty cn_ty v t = Nothing
+
 
 combineTerms gr funName [] mb_var_isPre n_p cn_ty argNames = (False, Nothing)
 combineTerms gr funName ts mb_var_isPre n_p cn_ty argNames =
@@ -491,18 +527,18 @@ combineTerms gr funName ts mb_var_isPre n_p cn_ty argNames =
     mkRecord lbls used_isPre ty =
       case Map.lookup (reverse lbls) varTrees of
         Nothing ->  (used_isPre, foldl P (Vr (idx n_p)) (reverse lbls))
-        Just [(_,def,_)] ->  (used_isPre, normalizeTbl ty def)
+        Just [(_,def,_)] ->  (used_isPre, normalizeTbl lbls ty def)
         Just defs ->
           case mb_var_isPre of
             Just var_isPre -> getDefs var_isPre used_isPre (unzip3 (sortOn (\(_,_,freq) -> -freq) defs))
             Nothing        -> let (_,def,_):_ = sortOn (\(_,_,rank) -> -rank) defs
-                              in (used_isPre, normalizeTbl ty def)
+                              in (used_isPre, normalizeTbl lbls ty def)
       where
         getDefs var_isPre used_isPre (order, defs', rs)
-          | length (nub order) == 1 = (used_isPre, normalizeTbl ty (fst (head (sortOn snd (zip defs' rs)))))
+          | length (nub order) == 1 = (used_isPre, normalizeTbl lbls ty (fst (head (sortOn snd (zip defs' rs)))))
         getDefs var_isPre used_isPre (order1:orders, def1:restDefs,_) =
           (True,
-           S (T TRaw [getPreOrPost order1 (normalizeTbl ty def1), getPreOrPost order2 (normalizeTbl ty def2)])
+           S (T TRaw [getPreOrPost order1 (normalizeTbl lbls ty def1), getPreOrPost order2 (normalizeTbl lbls ty def2)])
              (P (Vr var_isPre) cIsPre))
           where
             (order2, def2) = head (filter (\(x, y) -> x /= order1) (zip orders restDefs))
@@ -510,15 +546,17 @@ combineTerms gr funName ts mb_var_isPre n_p cn_ty argNames =
               | head o == var_isPre = (PP (cPrelude, cTrue)  [], def)
               | otherwise           = (PP (cPrelude, cFalse) [], def)
 
-    normalizeTbl ty t = reorderTables [] t
+    normalizeTbl lbls ty t = reorderTables [] t
       where
         reorderTables args (T (TTyped ty) [(PV v,t)]) = reorderTables ((ty,v):args) t
-        reorderTables args t                          = reconstruct args ty t
+        reorderTables args t                          = reconstruct 1 args ty t
           where
-            reconstruct args (Table arg res) t =
+            x i = identS ('x':if i == 1 then "" else show i)
+
+            reconstruct i args (Table arg res) t =
               case pick arg args of
-                Nothing       -> T TRaw [(PV identW,reconstruct args res t)]
-                Just (v,args) -> T TRaw [(PV v,     reconstruct args res t)]
+                Nothing       -> T TRaw [(PV (x i),reconstruct (i+1) args res t)]
+                Just (v,args) -> T TRaw [(PV v,    reconstruct i args res t)]
               where
                 pick x []     = Nothing
                 pick x ((x',y):rest)
@@ -527,7 +565,18 @@ combineTerms gr funName ts mb_var_isPre n_p cn_ty argNames =
                                   Nothing       -> Nothing
                                   Just (z,rest) -> Just (z,(x',y):rest)
 
-            reconstruct args _               t = t
+            reconstruct i args _ t
+              | i > 1     = patch (foldr (\lbl t -> P t lbl) (Vr (idx n_p)) lbls) (i-1) t
+              | otherwise = t
+
+            patch t0 n t
+              | match t0 t = foldl (\t i -> S t (Vr (x i))) t [1..n] 
+              where
+                match t0 t
+                  | t0 == t        = True
+                match t0 (S t1 t2) = match t0 t1
+                match t0 _         = False
+            patch t0 n t = composSafeOp (patch t0 n) t
 
 combineOneTerms gr funName [] mb_var_isPre a_p n_p argNames = (defLinType,defLinType,False,Nothing)
 combineOneTerms gr funName ts mb_var_isPre a_p n_p argNames =

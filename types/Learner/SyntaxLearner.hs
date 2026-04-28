@@ -23,7 +23,6 @@ import GF.Grammar.Printer
 import Data.List.UniqueStrict(count)
 
 
-
 -- add output folder
 options =
   [ Option "v" [] (NoArg (\cfg->cfg{cfgVerbose=True})) "verbose output"
@@ -312,6 +311,8 @@ learnDetCN cfg cnc gr noSmarts trees res = do
 
       addNum (RecType ltys1) (RecType ltys2) =
         RecType (ltys1 ++ [x | x@(l,_,QC (_,id)) <- ltys2, id == identS "Number"])
+      addNum ty _ = ty
+
 
 
 modifyCat cfg gr lincats = do
