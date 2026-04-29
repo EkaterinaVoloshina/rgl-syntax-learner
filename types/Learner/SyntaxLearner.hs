@@ -20,7 +20,6 @@ import Data.List
 import GF.Data.Operations
 import GF.Infra.Option
 import GF.Grammar.Printer
-import Data.List.UniqueStrict(count)
 
 
 -- add output folder
@@ -321,3 +320,6 @@ modifyCat cfg gr lincats = do
   return gr{moduleMap=Map.insert cat_mn mo{jments = Map.fromList lincats'} (moduleMap gr)}
   where
     cat_mn = cfgLangModuleName cfg "Cat"
+
+
+count xs = Map.toList (Map.fromListWith (+) [(x,1) | x <- xs])
